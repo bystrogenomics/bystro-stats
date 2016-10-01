@@ -7,7 +7,8 @@ use Cpanel::JSON::XS;
 open(my $fh, '<', $ARGV[0]);
 
 open(my $writeFh, '|-', "seqant_statistics -referenceColumnIdx 7 -alleleColumnIdx 6 "
-  . "-heterozygotesColumnIdx 3 -homozygotesColumnIdx 4 --outJsonPath test.out");
+  . "-heterozygotesColumnIdx 3 -homozygotesColumnIdx 4 --outputJsonPath test.out "
+  . "-siteTypeColumnIdx 8 -exonicAlleleFunctionColumnIdx 34");
 
 my $lines = '';
 my $count = 0;
