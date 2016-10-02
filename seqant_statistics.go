@@ -653,7 +653,7 @@ func main() {
 	outQcLines := [][]string{
 		[]string{"Transition:Transversion Ratio Mean", strconv.FormatFloat(trTvMean, 'f', -1, 64)},
 		[]string{"Transition:Transversion Ratio Median", strconv.FormatFloat(trTvMedian, 'f', -1, 64)},
-		[]string{"Transition:Transversion Ratio Median", strconv.FormatFloat(trTvSd, 'f', -1, 64)},
+		[]string{"Transition:Transversion Ratio Standard Deviation", strconv.FormatFloat(trTvSd, 'f', -1, 64)},
 	}
 
 	// outQcLines = append(outQcLines, []string{ "Transition:Transversion Ratio Mean", trTvMean})
@@ -753,7 +753,7 @@ func makeFillArrayFunc(emptyField string, secondaryDelim string, primaryDelim st
 					if checkDuplicates {
 						for _, haveVal := range out {
 							if haveVal == innerVal {
-								continue INNER
+								c1ontinue INNER
 							}
 						}
 					}
