@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	// "github.com/davecgh/go-spew/spew"
+	"runtime/pprof"
 )
 
 type jsonFloat float64
@@ -68,7 +69,17 @@ func main() {
 	secondaryDelimiter := flag.String("secondaryDelimiter", "|",
 		"The secondary delmiter (2D array string representation outer separator in input file)")
 	numberInputHeaderLines := flag.Int("numberInputHeaderLines", 0, "How many header lines does your input file have (0 is possible)")
+	cpuprofile := flag.String("cpuProfile", "", "write cpu profile to file")
 	flag.Parse()
+
+	if *cpuprofile != "" {
+		f, err := os.Create(*cpuprofile)
+		if err != nil {
+			log.Fatal(err)
+		}
+		pprof.StartCPUProfile(f)
+		defer pprof.StopCPUProfile()
+	}
 
 	inFh := (*os.File)(nil)
 
@@ -174,18 +185,18 @@ func main() {
 	// total => siteType transitions => ...
 
 	// sampleId|total : siteType|total|exonAlleleFunc = N
-	trMap := make(map[string]map[string]int)
-	tvMap := make(map[string]map[string]int)
+	trMap := make(map[string]map[string]int, 1000)
+	tvMap := make(map[string]map[string]int, 1000)
 
 	// sampleId|total : siteType|total|exonAlleleFunc = Y
-	ratioMap := make(map[string]map[string]jsonFloat)
+	ratioMap := make(map[string]map[string]jsonFloat, 1000)
 
 	// trTvArray will hold all of the ratios for total trTv
-	trTvRatioArray := []float64{}
+	trTvRatioArray := make([]float64, 0, 1000)
 
 	// this one contains both counts and ratios, and is what we put into the return json
 	// sampleId|total : "siteType|total|exonAlleleFunc transitions|transversions|ratio" = Z
-	allMap := make(map[string]map[string]interface{})
+	allMap := make(map[string]map[string]interface{}, 1000)
 
 	totalKey := "total"
 	trKey := "transitions"
@@ -205,15 +216,24 @@ func main() {
 
 	reader := bufio.NewReader(inFh)
 
-	trMap[totalKey] = map[string]int{totalKey: 0}
-	tvMap[totalKey] = map[string]int{totalKey: 0}
+	trMap[totalKey] = make(map[string]int, 200)
+	tvMap[totalKey] = make(map[string]int, 200)
+	trMap[totalKey][totalKey] = 0
+	tvMap[totalKey][totalKey] = 0
 
-	dbSNPfeatureMap := make(map[string]string)
+	dbSNPfeatureMap := make(map[string]string, 200)
 
 	fillArrayFunc := makeFillArrayFunc(*emptyFieldString, *secondaryDelimiter, *primaryDelimiter)
 
 	nonNullFunc := makeHasNonEmptyRecordFunc(*emptyFieldString, *secondaryDelimiter, *primaryDelimiter)
 
+	// samples that are variant in a single row, capacity
+	samples := make([]string, 1, 1000)
+	samples[0] = totalKey
+
+	siteTypes := make([]string, 0, 200)
+
+	var record []string
 	for {
 		// http://stackoverflow.com/questions/8757389/reading-file-line-by-line-in-go
 		// http://www.jeffduckett.com/blog/551119d6c6b86364cef12da7/golang---read-a-file-line-by-line.html
@@ -236,7 +256,7 @@ func main() {
 			rowCount++
 
 			if rowCount == 1 && *numberInputHeaderLines == 1 {
-				record := strings.Split(row, *fieldSeparator)
+				record = strings.Split(row, *fieldSeparator)
 
 				if *referenceColumnName != "" && *referenceColumnIdx == -9 {
 					*referenceColumnIdx = findIndex(record, *referenceColumnName)
@@ -298,7 +318,7 @@ func main() {
 			continue
 		}
 
-		record := strings.Split(row, *fieldSeparator)
+		record = strings.Split(row, *fieldSeparator)
 
 		if len(record[*alleleColumnIdx]) > 1 {
 			continue
@@ -328,25 +348,17 @@ func main() {
 			hasDbSnp = nonNullFunc(record[*dbSNPnameColumnIdx])
 		}
 
-		seenSamples := make(map[string]struct{})
-		samples := []string{totalKey}
+		// remove everything but the total key
+		samples = samples[:1]
 
 		// var allSamples bytes.Buffer
 		// allSamples.WriteString(record[*heterozygotesColumnIdx])
 		// allSamples.WriteString(*secondaryDelimiter)
 		// allSamples.WriteString(record[*homozygotesColumnIdx])
 		// samples = append(samples, fillArrayFunc(allSamples.String(), make(map[string]struct{}))...)
-		hetSamples := fillArrayFunc(record[*heterozygotesColumnIdx], seenSamples)
+		samples = append(samples, fillArrayFunc(record[*heterozygotesColumnIdx], false, false)...)
 
-		if hetSamples != nil {
-			samples = append(samples, hetSamples...)
-		}
-
-		homSamples := fillArrayFunc(record[*homozygotesColumnIdx], seenSamples)
-
-		if homSamples != nil {
-			samples = append(samples, homSamples...)
-		}
+		samples = append(samples, fillArrayFunc(record[*homozygotesColumnIdx], false, false)...)
 
 		// // if record[2] == "MULTIALLELIC" {
 		// //   multiCount++
@@ -367,20 +379,22 @@ func main() {
 		// allSiteTypes.WriteString(*secondaryDelimiter)
 		// allSiteTypes.WriteString(record[*exonicAlleleFunctionColumnIdx])
 
-		seenValues := make(map[string]struct{})
-		siteTypes := fillArrayFunc( /*allSiteTypes.String()*/ record[*siteTypeColumnIdx], seenValues)
+		// seenValues := make(map[string]struct{})
+		siteTypes = fillArrayFunc( /*allSiteTypes.String()*/ record[*siteTypeColumnIdx], true, true)
 
 		if siteTypes == nil {
-			siteTypes = fillArrayFunc(record[*exonicAlleleFunctionColumnIdx], seenValues)
+			siteTypes = fillArrayFunc(record[*exonicAlleleFunctionColumnIdx], true, true)
 		} else {
-			siteTypes = append(siteTypes, fillArrayFunc(record[*exonicAlleleFunctionColumnIdx], seenValues)...)
+			siteTypes = append(siteTypes, fillArrayFunc(record[*exonicAlleleFunctionColumnIdx], true, true)...)
 		}
 
 		for _, sample := range samples {
 			if _, exists := trMap[sample]; !exists {
+				trMap[sample] = make(map[string]int, 200)
+				tvMap[sample] = make(map[string]int, 200)
 				// fmt.Printf("making map %s %s\n", sample, totalKey)
-				trMap[sample] = map[string]int{totalKey: 0}
-				tvMap[sample] = map[string]int{totalKey: 0}
+				// trMap[sample][totalKey] = 0
+				// tvMap[sample][totalKey] = 0
 			}
 
 			if isTransition == true {
@@ -390,11 +404,11 @@ func main() {
 			}
 
 			for _, siteType := range siteTypes {
-				if _, exists := trMap[sample][siteType]; !exists {
-					// fmt.Printf("making map %s %s\n", sample, siteType)
-					trMap[sample][siteType] = 0
-					tvMap[sample][siteType] = 0
-				}
+				// if _, exists := trMap[sample][siteType]; !exists {
+				//  // fmt.Printf("making map %s %s\n", sample, siteType)
+				//  trMap[sample][siteType] = 0
+				//  tvMap[sample][siteType] = 0
+				// }
 
 				if isTransition == true {
 					trMap[sample][siteType]++
@@ -403,19 +417,16 @@ func main() {
 				}
 
 				if hasDbSnp == true {
-					if _, exists := dbSNPfeatureMap[siteType]; !exists {
+					if dbSNPfeatureMap[siteType] == "" {
 						var name bytes.Buffer
 						// siteType_in_dbSNP
 						name.WriteString(siteType)
 						name.WriteString(dbSnpKey)
 
 						dbSNPfeatureMap[siteType] = name.String()
-					}
 
-					if _, exists := trMap[sample][dbSNPfeatureMap[siteType]]; !exists {
-						// fmt.Printf("making map %s %s\n", sample, siteName)
-						trMap[sample][dbSNPfeatureMap[siteType]] = 0
-						tvMap[sample][dbSNPfeatureMap[siteType]] = 0
+						trMap[sample][dbSNPfeatureMap[name.String()]] = 0
+						tvMap[sample][dbSNPfeatureMap[name.String()]] = 0
 					}
 
 					if isTransition == true {
@@ -430,7 +441,7 @@ func main() {
 
 	for sampleID := range trMap {
 		if _, exists := ratioMap[sampleID]; !exists {
-			ratioMap[sampleID] = make(map[string]jsonFloat)
+			ratioMap[sampleID] = make(map[string]jsonFloat, 100)
 		}
 
 		for siteType := range trMap[sampleID] {
@@ -440,12 +451,12 @@ func main() {
 		}
 	}
 
-	trSiteTypeMap := make(map[string]string)
-	tvSiteTypeMap := make(map[string]string)
-	ratioSiteTypeMap := make(map[string]string)
+	trSiteTypeMap := make(map[string]string, 200)
+	tvSiteTypeMap := make(map[string]string, 200)
+	ratioSiteTypeMap := make(map[string]string, 200)
 	for sampleID := range trMap {
 		if _, exists := allMap[sampleID]; !exists {
-			allMap[sampleID] = make(map[string]interface{})
+			allMap[sampleID] = make(map[string]interface{}, 200)
 		}
 
 		for siteType := range trMap[sampleID] {
@@ -501,7 +512,9 @@ func main() {
 	// numberOfSamples := len(allMap)
 
 	var sampleNames []string
-	var siteTypes []string
+
+	siteTypes = nil
+
 	var totalSiteTypes []string
 
 	uniqueSites := make(map[string]struct{})
@@ -648,6 +661,8 @@ func main() {
 	// outQcLines = append(outQcLines, "Transition:Transversion Ratio Median", trTvSd)
 
 	writer.WriteAll(outQcLines)
+
+	pprof.StopCPUProfile()
 }
 
 // //https://github.com/dropbox/godropbox/blob/master/sort2/sort.go
@@ -701,15 +716,16 @@ func stdDev(numbers []float64, mean float64) float64 {
 	return math.Sqrt(variance)
 }
 
-func makeFillArrayFunc(emptyField string, secondaryDelim string, primaryDelim string) func(string, map[string]struct{}) []string {
-	return func(record string, seen map[string]struct{}) []string {
-		var out []string
-
+func makeFillArrayFunc(emptyField string, secondaryDelim string, primaryDelim string) func(string, bool, bool) []string {
+	return func(record string, checkSecondary bool, checkDuplicates bool) []string {
 		if record == emptyField {
-			return out
+			return nil
 		}
 
-		if strings.Contains(record, secondaryDelim) {
+		if checkSecondary && strings.Contains(record, secondaryDelim) {
+			out := make([]string, 0, 50)
+
+		OUTER:
 			for _, val := range strings.Split(record, secondaryDelim) {
 
 				if !strings.Contains(val, primaryDelim) {
@@ -717,24 +733,32 @@ func makeFillArrayFunc(emptyField string, secondaryDelim string, primaryDelim st
 						continue
 					}
 
-					if _, found := seen[val]; !found {
-						seen[val] = struct{}{}
-						out = append(out, val)
-						continue
+					if checkDuplicates {
+						for _, haveVal := range out {
+							if haveVal == val {
+								continue OUTER
+							}
+						}
 					}
 
 					continue
 				}
 
+			INNER:
 				for _, innerVal := range strings.Split(val, primaryDelim) {
 					if innerVal == emptyField {
 						continue
 					}
 
-					if _, found := seen[innerVal]; !found {
-						seen[innerVal] = struct{}{}
-						out = append(out, innerVal)
+					if checkDuplicates {
+						for _, haveVal := range out {
+							if haveVal == innerVal {
+								continue INNER
+							}
+						}
 					}
+
+					out = append(out, innerVal)
 				}
 			}
 
@@ -742,26 +766,22 @@ func makeFillArrayFunc(emptyField string, secondaryDelim string, primaryDelim st
 		}
 
 		if !strings.Contains(record, primaryDelim) {
-			if record == emptyField {
-				return out
-			}
-
-			if _, found := seen[record]; !found {
-				seen[record] = struct{}{}
-
-				// avoid an append
-				return []string{record}
-			}
-
-			return out
+			return []string{record}
 		}
 
+		out := make([]string, 0, 50)
+
+	PRIMARY:
 		for _, innerVal := range strings.Split(record, primaryDelim) {
 			if innerVal != emptyField {
-				if _, found := seen[innerVal]; !found {
-					seen[innerVal] = struct{}{}
-					out = append(out, innerVal)
+				if checkDuplicates {
+					for _, haveVal := range out {
+						if haveVal == innerVal {
+							continue PRIMARY
+						}
+					}
 				}
+				out = append(out, innerVal)
 			}
 		}
 
@@ -771,10 +791,6 @@ func makeFillArrayFunc(emptyField string, secondaryDelim string, primaryDelim st
 
 func makeHasNonEmptyRecordFunc(emptyField string, secondaryDelim string, primaryDelim string) func(string) bool {
 	return func(record string) bool {
-		if record == emptyField {
-			return false
-		}
-
 		if strings.Contains(record, secondaryDelim) {
 			for _, val := range strings.Split(record, secondaryDelim) {
 
