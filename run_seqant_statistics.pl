@@ -11,7 +11,7 @@ open(my $writeFh, '|-', 'seqant-statistics -outputJSONPath ExAC.hg19.snpOnly-10k
   .' -referenceColumnName hg38 -alleleColumnName minorAlleles -homozygotesColumnName homozygotes '
   . '-heterozygotesColumnName heterozygotes -siteTypeColumnName refSeq.siteType '
   . ' -dbSNPnameColumnName dbSNP146.name -exonicAlleleFunctionColumnName refSeq.exonicAlleleFunction '
-  . ' -numberInputHeaderLines 1');
+  . " -numberInputHeaderLines 1 -primaryDelimiter \$\";\" -secondaryDelimiter \$\"|\" -fieldSeparator \$\"\t\"");
 
 my $lines = '';
 my $count = 0;
