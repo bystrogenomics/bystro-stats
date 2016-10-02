@@ -54,12 +54,12 @@ func main() {
 		"The homozygous sample column name")
 	siteTypeColumnIdx := flag.Int("siteTypeColumnIdx", -9, "The site type column index")
 	siteTypeColumnName := flag.String("siteTypeColumnName", "refSeq.siteType", "The site type column name")
-	dbSNPnameColumnIdx := flag.Int("dbSNPnameColumnIdx", -9, "The dbSNP name column index")
-	dbSNPnameColumnName := flag.String("dbSNPnameColumnName", "dbSNP146.name", "The snp name column name")
+	dbSNPnameColumnIdx := flag.Int("dbSNPnameColumnIdx", -9, "Optional. The dbSNP name column index")
+	dbSNPnameColumnName := flag.String("dbSNPnameColumnName", "dbSNP146.name", "Optional. The snp name column name")
 	exonicAlleleFunctionColumnIdx := flag.Int("exonicAlleleFunctionColumnIdx", -9,
-		"The exonicAlleleFunction column index")
+		"Optional. The exonicAlleleFunction column index")
 	exonicAlleleFunctionColumnName := flag.String("exonicAlleleFunctionColumnName",
-		"refSeq.codonEffect", `The name of the column that has exonicAlleleFunction, aka the one that has
+		"refSeq.codonEffect", `Optional. The name of the column that has exonicAlleleFunction, aka the one that has
     nonSynonymous, synonymous, etc values`)
 	fieldSeparator := flag.String("fieldSeparator", "\t", "What is used to delimit fields (',', '\t', etc)")
 	primaryDelimiter := flag.String("primaryDelimiter", ";",
@@ -127,11 +127,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	if *exonicAlleleFunctionColumnIdx == -9 && (*exonicAlleleFunctionColumnName == "" || *numberInputHeaderLines != 1) {
-		log.Fatal(`If exonicAlleleFunctionColumnIdx not provided, exonicAlleleFunctionColumnName must be,
-     and numberInputHeaderLines must be equal 1`)
-		os.Exit(1)
-	}
+	// if *exonicAlleleFunctionColumnIdx == -9 && (*exonicAlleleFunctionColumnName == "" || *numberInputHeaderLines != 1) {
+	// 	log.Fatal(`If exonicAlleleFunctionColumnIdx not provided, exonicAlleleFunctionColumnName must be,
+	//     and numberInputHeaderLines must be equal 1`)
+	// 	os.Exit(1)
+	// }
 
 	// Beacuse I don't know how to pass a rune...
 	if *fieldSeparator != "\t" && *fieldSeparator != "," {
@@ -211,6 +211,8 @@ func main() {
 	// if user gives us dbSNP
 	hasDbSnpColumn := *dbSNPnameColumnIdx != -9
 	hasDbSnp := false
+
+	hasExonicColumn := *exonicAlleleFunctionColumnIdx != -9
 
 	rowCount := 0
 
@@ -302,15 +304,15 @@ func main() {
 					*dbSNPnameColumnIdx = findIndex(record, *dbSNPnameColumnName)
 
 					if *dbSNPnameColumnIdx == -9 {
-						log.Fatal("dbSNPnameColumnName not found")
+						hasDbSnpColumn = true
 					}
 				}
 
 				if *exonicAlleleFunctionColumnName != "" && *exonicAlleleFunctionColumnIdx == -9 {
 					*exonicAlleleFunctionColumnIdx = findIndex(record, *exonicAlleleFunctionColumnName)
 
-					if *exonicAlleleFunctionColumnIdx == -9 {
-						log.Fatal("dbSNPnameColumnName not found")
+					if *exonicAlleleFunctionColumnIdx != -9 {
+						hasExonicColumn = true
 					}
 				}
 			}
@@ -382,10 +384,12 @@ func main() {
 		// seenValues := make(map[string]struct{})
 		siteTypes = fillArrayFunc( /*allSiteTypes.String()*/ record[*siteTypeColumnIdx], true, true)
 
-		if siteTypes == nil {
-			siteTypes = fillArrayFunc(record[*exonicAlleleFunctionColumnIdx], true, true)
-		} else {
-			siteTypes = append(siteTypes, fillArrayFunc(record[*exonicAlleleFunctionColumnIdx], true, true)...)
+		if hasExonicColumn == true {
+			if siteTypes == nil {
+				siteTypes = fillArrayFunc(record[*exonicAlleleFunctionColumnIdx], true, true)
+			} else {
+				siteTypes = append(siteTypes, fillArrayFunc(record[*exonicAlleleFunctionColumnIdx], true, true)...)
+			}
 		}
 
 		for _, sample := range samples {

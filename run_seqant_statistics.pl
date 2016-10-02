@@ -6,21 +6,27 @@ use Cpanel::JSON::XS;
 
 open(my $fh, '<', $ARGV[0]);
 
-open(my $writeFh, '|-', "seqant_statistics -referenceColumnIdx 7 -alleleColumnIdx 6 "
-  . "-heterozygotesColumnIdx 3 -homozygotesColumnIdx 4 --outputJsonPath test.out "
-  . "-siteTypeColumnIdx 8 -exonicAlleleFunctionColumnIdx 34");
+open(my $writeFh, '|-', 'seqant-statistics -outputJSONPath ExAC.hg19.snpOnly-10klines.statistics.json '
+  .' -outputTabPath ExAC.hg19.snpOnly-10klines.statistics.tab -outputQcTabPath ExAC.hg19.snpOnly-10klines.statistics.qc.tab '
+  .' -referenceColumnName hg38 -alleleColumnName minorAlleles -homozygotesColumnName homozygotes '
+  . '-heterozygotesColumnName heterozygotes -siteTypeColumnName refSeq.siteType '
+  . ' -dbSNPnameColumnName dbSNP146.name -exonicAlleleFunctionColumnName refSeq.exonicAlleleFunction '
+  . ' -numberInputHeaderLines 1');
 
 my $lines = '';
 my $count = 0;
 while(<$fh>) {
   $lines .= $_;
 
+  
+  
   $count++;
 
   if($count > 1e4) {
     print $writeFh $lines;
 
     $lines = '';
+    # sleep(1);
   }
 }
 
