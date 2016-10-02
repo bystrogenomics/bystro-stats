@@ -753,7 +753,7 @@ func makeFillArrayFunc(emptyField string, secondaryDelim string, primaryDelim st
 					if checkDuplicates {
 						for _, haveVal := range out {
 							if haveVal == innerVal {
-								c1ontinue INNER
+								continue INNER
 							}
 						}
 					}
