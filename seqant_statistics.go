@@ -191,13 +191,6 @@ func main() {
 	// sampleId|total : siteType|total|exonAlleleFunc = Y
 	ratioMap := make(map[string]map[string]jsonFloat, 1000)
 
-	// trTvArray will hold all of the ratios for total trTv
-	trTvRatioArray := make([]float64, 0, 1000)
-
-	// this one contains both counts and ratios, and is what we put into the return json
-	// sampleId|total : "siteType|total|exonAlleleFunc transitions|transversions|ratio" = Z
-	allMap := make(map[string]map[string]interface{}, 1000)
-
 	totalKey := "total"
 	trKey := "transitions"
 	tvKey := "transversions"
@@ -322,6 +315,7 @@ func main() {
 
 		record = strings.Split(row, *fieldSeparator)
 
+		// spew.Dump(record)
 		if len(record[*alleleColumnIdx]) > 1 {
 			continue
 		}
@@ -458,9 +452,12 @@ func main() {
 	trSiteTypeMap := make(map[string]string, 200)
 	tvSiteTypeMap := make(map[string]string, 200)
 	ratioSiteTypeMap := make(map[string]string, 200)
+
+	samplesMap := make(map[string]map[string]interface{}, 1000)
+
 	for sampleID := range trMap {
-		if _, exists := allMap[sampleID]; !exists {
-			allMap[sampleID] = make(map[string]interface{}, 200)
+		if _, exists := samplesMap[sampleID]; !exists {
+			samplesMap[sampleID] = make(map[string]interface{}, 200)
 		}
 
 		for siteType := range trMap[sampleID] {
@@ -488,13 +485,15 @@ func main() {
 				ratioSiteTypeMap[siteType] = ratioName.String()
 			}
 
-			allMap[sampleID][trSiteTypeMap[siteType]] = trMap[sampleID][siteType]
-			allMap[sampleID][tvSiteTypeMap[siteType]] = tvMap[sampleID][siteType]
-			allMap[sampleID][ratioSiteTypeMap[siteType]] = ratioMap[sampleID][siteType]
+			samplesMap[sampleID][trSiteTypeMap[siteType]] = trMap[sampleID][siteType]
+			samplesMap[sampleID][tvSiteTypeMap[siteType]] = tvMap[sampleID][siteType]
+			samplesMap[sampleID][ratioSiteTypeMap[siteType]] = ratioMap[sampleID][siteType]
 		}
 	}
 
 	// // conduct QC
+	// trTvArray will hold all of the ratios for total trTv
+	trTvRatioArray := make([]float64, 0, 1000)
 
 	// total names
 	var totalTrName bytes.Buffer
@@ -522,7 +521,7 @@ func main() {
 	var totalSiteTypes []string
 
 	uniqueSites := make(map[string]struct{})
-	for sampleName, sampleHash := range allMap {
+	for sampleName, sampleHash := range samplesMap {
 		if sampleName != totalKey {
 			sampleNames = append(sampleNames, sampleName)
 			trTvRatioArray = append(trTvRatioArray, float64(ratioMap[sampleName][totalKey]))
@@ -572,10 +571,19 @@ func main() {
 	// fmt.Printf("Transition:Transversion Ratio mean %f\n", trTvMean)
 	// fmt.Printf("Transition:Transversion Ratio median %f\n", trTvMedian)
 	// fmt.Printf("Transition:Transversion Ratio standard deviation %f\n", trTvSd)
+	// this one contains both counts and ratios, and is what we put into the return json
+	// sampleId|total : "siteType|total|exonAlleleFunc transitions|transversions|ratio" = Z
+	allMap := make(map[string]map[string]interface{}, 2)
 
-	allMap["qc"] = map[string]interface{}{
+	//later we will have failedSamples
+	allMap["stats"] = map[string]interface{}{
 		trTvRatioMeanKey: jsonFloat(trTvMean), trTvRatioMedianKey: jsonFloat(trTvMedian),
 		trTvRatioStdDevKey: jsonFloat(trTvSd),
+	}
+
+	allMap["results"] = map[string]interface{}{
+		"order":   siteTypes,
+		"samples": samplesMap,
 	}
 
 	if *outputJSONPath != "" {
