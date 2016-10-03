@@ -810,6 +810,8 @@ func makeHasNonEmptyRecordFunc(emptyField string, secondaryDelim string, primary
 					if val != emptyField {
 						return true
 					}
+
+					continue
 				}
 
 				for _, innerVal := range strings.Split(val, primaryDelim) {

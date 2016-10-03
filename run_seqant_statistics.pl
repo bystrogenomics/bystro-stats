@@ -16,6 +16,7 @@ open(my $writeFh, '|-', 'seqant-statistics -outputJSONPath ExAC.hg19.snpOnly-10k
 my $lines = '';
 my $count = 0;
 while(<$fh>) {
+  chomp;
   $lines .= $_;
 
   
@@ -23,15 +24,15 @@ while(<$fh>) {
   $count++;
 
   if($count > 1e4) {
-    print $writeFh $lines;
+    say $writeFh $lines;
 
     $lines = '';
-    # sleep(1);
+    sleep(1);
   }
 }
 
 if($lines) {
-  print $writeFh $lines;
+  say $writeFh $lines;
 }
 
 close $writeFh;
