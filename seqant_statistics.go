@@ -18,12 +18,17 @@ import (
 	"strings"
 
 	// "github.com/davecgh/go-spew/spew"
+	// "math/big"
 	"runtime/pprof"
 )
 
 type jsonFloat float64
 
 func (value jsonFloat) MarshalJSON() ([]byte, error) {
+	if math.IsInf(float64(value), 1) {
+		return []byte("null"), nil
+	}
+
 	if math.IsNaN(float64(value)) {
 		// Can't use "NA", get json: error calling MarshalJSON for type main.jsonFloat: invalid character 'N' looking for beginning of value
 		return []byte("null"), nil
