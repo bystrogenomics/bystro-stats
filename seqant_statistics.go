@@ -561,9 +561,18 @@ func main() {
 
 	siteTypes = append(siteTypes, totalSiteTypes...)
 
-	trTvMean := mean(trTvRatioArray)
-	trTvMedian := median(trTvRatioArray)
-	trTvSd := stdDev(trTvRatioArray, trTvMean)
+	var trTvMean float64
+	var trTvMedian float64
+	var trTvSd float64
+
+	if len(trTvRatioArray) > 0 {
+		trTvMean = mean(trTvRatioArray)
+		trTvMedian = median(trTvRatioArray)
+
+		if trTvMean != 0.0 {
+			trTvSd = stdDev(trTvRatioArray, trTvMean)
+		}
+	}
 
 	// fmt.Printf("Number of SNP %d\n", snpCount)
 	// fmt.Printf("Number of DEL %d\n", delCount)
