@@ -7,7 +7,7 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"flag"
-	// "fmt"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
@@ -44,7 +44,7 @@ func main() {
 	outputJSONPath := flag.String("outputJSONPath", "", "The output path for the JSON output (optional)")
 	outputTabPath := flag.String("outputTabPath", "", "The output path for tab-delimited file")
 	outputQcTabPath := flag.String("outputQcTabPath", "", "The output path for tab-delimited quality control file")
-	referenceColumnIdx := flag.Int("referenceColumnIdx", -9, "The reference base column index")
+	referenceColumnIdx := flag.Int("referenceColumnIdx", 7, "The reference base column index")
 	referenceColumnName := flag.String("referenceColumnName", "",
 		"The reference base column name. This is usually the name of the assembly")
 	alleleColumnIdx := flag.Int("alleleColumnIdx", -9, "The allele column index")
@@ -73,7 +73,9 @@ func main() {
 		"What is used to denoted an empty field (NA by default)")
 	secondaryDelimiter := flag.String("secondaryDelimiter", "|",
 		"The secondary delmiter (2D array string representation outer separator in input file)")
-	numberInputHeaderLines := flag.Int("numberInputHeaderLines", 0, "How many header lines does your input file have (0 is possible)")
+	numberInputHeaderLines := flag.Int("numberInputHeaderLines", 1, "How many header lines does your input file have (0 is possible)")
+	countSNPmulti := flag.Bool("countSNPmulti", false, "Count SNP sites that have 2 non-reference alleles")
+
 	cpuprofile := flag.String("cpuProfile", "", "write cpu profile to file")
 	flag.Parse()
 
@@ -173,7 +175,7 @@ func main() {
 	var isTransition bool
 	var isTransversion bool
 
-	// discordantCount := 0
+	discordantCount := 0
 	// weirdSites := 0
 	// insCount := 0
 	// delCount := 0
@@ -232,6 +234,8 @@ func main() {
 	samples[0] = totalKey
 
 	siteTypes := make([]string, 0, 200)
+
+	discordantRows := make([][]string, 0, 400)
 
 	var record []string
 	for {
@@ -338,12 +342,10 @@ func main() {
 			// if record[2] != "SNP" {
 			//  weirdSites++
 			// }
+		} else if record[2] == "SNP" && *countSNPmulti == true {
+			discordantCount++
+			discordantRows = append(discordantRows, record)
 		}
-		//   else {
-		//  if record[2] == "SNP" {
-		//    discordantCount++
-		//  }
-		// }
 
 		if hasDbSnpColumn {
 			hasDbSnp = nonNullFunc(record[*dbSNPnameColumnIdx])
@@ -614,7 +616,11 @@ func main() {
 		}
 	}
 
+	//FOR SOME REASON, when I
+	// spew.Dump(allMap["samples"]), I get the samples as keys, and null values
+	// I expected nothign (allMap[results][samples])
 	// Write output as a tabbed file
+
 	outFh := (*os.File)(nil)
 
 	if *outputTabPath != "" {
@@ -640,10 +646,11 @@ func main() {
 
 	for _, sampleName := range sampleNames {
 		// First column is for the sample name
+
 		line := []string{sampleName}
 
 		for _, siteType := range siteTypes {
-			switch value := allMap[sampleName][siteType].(type) {
+			switch value := samplesMap[sampleName][siteType].(type) {
 			case int:
 				line = append(line, strconv.Itoa(value))
 			case jsonFloat:
@@ -653,11 +660,22 @@ func main() {
 
 		outLines = append(outLines, line)
 	}
+
 	writer.WriteAll(outLines)
 
 	// Write output as a tabbed file
 	outQcFh := (*os.File)(nil)
 	defer outQcFh.Close()
+
+	if *countSNPmulti == true {
+		fmt.Printf("\n\nFound %d SNP sites that look multi-allelic\n\n", discordantCount)
+
+		if discordantCount != 0 {
+			discordantWriter := csv.NewWriter(os.Stdout)
+			discordantWriter.Comma = '\t'
+			discordantWriter.WriteAll(discordantRows)
+		}
+	}
 
 	if *outputQcTabPath != "" {
 		var err error
