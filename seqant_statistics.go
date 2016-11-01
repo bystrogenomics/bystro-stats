@@ -44,7 +44,7 @@ func main() {
 	outputJSONPath := flag.String("outputJSONPath", "", "The output path for the JSON output (optional)")
 	outputTabPath := flag.String("outputTabPath", "", "The output path for tab-delimited file")
 	outputQcTabPath := flag.String("outputQcTabPath", "", "The output path for tab-delimited quality control file")
-	referenceColumnIdx := flag.Int("referenceColumnIdx", 7, "The reference base column index")
+	referenceColumnIdx := flag.Int("referenceColumnIdx", 8, "The reference base column index")
 	referenceColumnName := flag.String("referenceColumnName", "",
 		"The reference base column name. This is usually the name of the assembly")
 	alleleColumnIdx := flag.Int("alleleColumnIdx", -9, "The allele column index")
@@ -262,7 +262,7 @@ func main() {
 			if rowCount == 1 && *numberInputHeaderLines == 1 {
 				record = strings.Split(row, *fieldSeparator)
 
-				if *referenceColumnName != "" && *referenceColumnIdx == -9 {
+				if *referenceColumnName != "" {
 					*referenceColumnIdx = findIndex(record, *referenceColumnName)
 
 					if *referenceColumnIdx == -9 {
@@ -270,7 +270,7 @@ func main() {
 					}
 				}
 
-				if *alleleColumnName != "" && *alleleColumnIdx == -9 {
+				if *alleleColumnName != "" {
 					*alleleColumnIdx = findIndex(record, *alleleColumnName)
 
 					if *alleleColumnIdx == -9 {
@@ -278,7 +278,7 @@ func main() {
 					}
 				}
 
-				if *heterozygotesColumnName != "" && *heterozygotesColumnIdx == -9 {
+				if *heterozygotesColumnName != "" {
 					*heterozygotesColumnIdx = findIndex(record, *heterozygotesColumnName)
 
 					if *heterozygotesColumnIdx == -9 {
@@ -286,7 +286,7 @@ func main() {
 					}
 				}
 
-				if *homozygotesColumnName != "" && *homozygotesColumnIdx == -9 {
+				if *homozygotesColumnName != "" {
 					*homozygotesColumnIdx = findIndex(record, *homozygotesColumnName)
 
 					if *homozygotesColumnIdx == -9 {
@@ -294,7 +294,7 @@ func main() {
 					}
 				}
 
-				if *siteTypeColumnName != "" && *siteTypeColumnIdx == -9 {
+				if *siteTypeColumnName != "" {
 					*siteTypeColumnIdx = findIndex(record, *siteTypeColumnName)
 
 					if *siteTypeColumnIdx == -9 {
@@ -302,7 +302,7 @@ func main() {
 					}
 				}
 
-				if *dbSNPnameColumnName != "" && *dbSNPnameColumnIdx == -9 {
+				if *dbSNPnameColumnName != "" {
 					*dbSNPnameColumnIdx = findIndex(record, *dbSNPnameColumnName)
 
 					if *dbSNPnameColumnIdx == -9 {
@@ -310,7 +310,7 @@ func main() {
 					}
 				}
 
-				if *exonicAlleleFunctionColumnName != "" && *exonicAlleleFunctionColumnIdx == -9 {
+				if *exonicAlleleFunctionColumnName != "" {
 					*exonicAlleleFunctionColumnIdx = findIndex(record, *exonicAlleleFunctionColumnName)
 
 					if *exonicAlleleFunctionColumnIdx != -9 {
