@@ -71,8 +71,6 @@ func main() {
 		"The primary delmiter (1D array string representation separator in input file)")
 	emptyFieldString := flag.String("emptyFieldString", "!",
 		"What is used to denoted an empty field (\\ by default)")
-	secondaryDelimiter := flag.String("secondaryDelimiter", "|",
-		"The secondary delmiter (2D array string representation outer separator in input file)")
 	numberInputHeaderLines := flag.Int("numberInputHeaderLines", 1, "How many header lines does your input file have (0 is possible)")
 	countSNPmulti := flag.Bool("countSNPmulti", false, "Count SNP sites that have 2 non-reference alleles")
 
@@ -211,9 +209,9 @@ func main() {
 
 	dbSNPfeatureMap := make(map[string]string, 200)
 
-	fillArrayFunc := makeFillArrayFunc(*emptyFieldString, *secondaryDelimiter, *primaryDelimiter)
+	fillArrayFunc := makeFillArrayFunc(*emptyFieldString, *primaryDelimiter)
 
-	nonNullFunc := makeHasNonEmptyRecordFunc(*emptyFieldString, *secondaryDelimiter, *primaryDelimiter)
+	nonNullFunc := makeHasNonEmptyRecordFunc(*emptyFieldString, *primaryDelimiter)
 
 	// samples that are variant in a single row, capacity
 	samples := make([]string, 1, 1000)
@@ -337,15 +335,15 @@ func main() {
 		// Make siteTypes, exonicTypes, and samples unique; struct{} takes up no additional space
 		// http://stackoverflow.com/questions/9251234/go-append-if-unique
 		// Samples are assumed to be unique already, so uniqueness test flags disabled
-		samples = append(samples, fillArrayFunc(record[*heterozygotesColumnIdx], false, false)...)
-		samples = append(samples, fillArrayFunc(record[*homozygotesColumnIdx], false, false)...)
-		siteTypes = fillArrayFunc(record[*siteTypeColumnIdx], true, true)
+		samples = append(samples, fillArrayFunc(record[*heterozygotesColumnIdx], false)...)
+		samples = append(samples, fillArrayFunc(record[*homozygotesColumnIdx], false)...)
+		siteTypes = fillArrayFunc(record[*siteTypeColumnIdx], true)
 
 		if hasExonicColumn == true {
 			if siteTypes == nil {
-				siteTypes = fillArrayFunc(record[*exonicAlleleFunctionColumnIdx], true, true)
+				siteTypes = fillArrayFunc(record[*exonicAlleleFunctionColumnIdx], true)
 			} else {
-				siteTypes = append(siteTypes, fillArrayFunc(record[*exonicAlleleFunctionColumnIdx], true, true)...)
+				siteTypes = append(siteTypes, fillArrayFunc(record[*exonicAlleleFunctionColumnIdx], true)...)
 			}
 		}
 
@@ -704,53 +702,10 @@ func stdDev(numbers []float64, mean float64) float64 {
 	return math.Sqrt(variance)
 }
 
-func makeFillArrayFunc(emptyField string, secondaryDelim string, primaryDelim string) func(string, bool, bool) []string {
-	return func(record string, checkSecondary bool, checkDuplicates bool) []string {
+func makeFillArrayFunc(emptyField string, primaryDelim string) func(string, bool, bool) []string {
+	return func(record string, checkDuplicates bool) []string {
 		if record == emptyField {
 			return nil
-		}
-
-		if checkSecondary && strings.Contains(record, secondaryDelim) {
-			out := make([]string, 0, 50)
-
-		OUTER:
-			for _, val := range strings.Split(record, secondaryDelim) {
-
-				if !strings.Contains(val, primaryDelim) {
-					if val == emptyField {
-						continue
-					}
-
-					if checkDuplicates {
-						for _, haveVal := range out {
-							if haveVal == val {
-								continue OUTER
-							}
-						}
-					}
-
-					continue
-				}
-
-			INNER:
-				for _, innerVal := range strings.Split(val, primaryDelim) {
-					if innerVal == emptyField {
-						continue
-					}
-
-					if checkDuplicates {
-						for _, haveVal := range out {
-							if haveVal == innerVal {
-								continue INNER
-							}
-						}
-					}
-
-					out = append(out, innerVal)
-				}
-			}
-
-			return out
 		}
 
 		if !strings.Contains(record, primaryDelim) {
@@ -777,29 +732,8 @@ func makeFillArrayFunc(emptyField string, secondaryDelim string, primaryDelim st
 	}
 }
 
-func makeHasNonEmptyRecordFunc(emptyField string, secondaryDelim string, primaryDelim string) func(string) bool {
+func makeHasNonEmptyRecordFunc(emptyField string, primaryDelim string) func(string) bool {
 	return func(record string) bool {
-		if strings.Contains(record, secondaryDelim) {
-			for _, val := range strings.Split(record, secondaryDelim) {
-
-				if !strings.Contains(val, primaryDelim) {
-					if val != emptyField {
-						return true
-					}
-
-					continue
-				}
-
-				for _, innerVal := range strings.Split(val, primaryDelim) {
-					if innerVal != emptyField {
-						return true
-					}
-				}
-			}
-
-			return false
-		}
-
 		if !strings.Contains(record, primaryDelim) {
 			if record != emptyField {
 				return true
