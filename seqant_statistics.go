@@ -702,7 +702,7 @@ func stdDev(numbers []float64, mean float64) float64 {
 	return math.Sqrt(variance)
 }
 
-func makeFillArrayFunc(emptyField string, primaryDelim string) func(string, bool, bool) []string {
+func makeFillArrayFunc(emptyField string, primaryDelim string) func(string, bool) []string {
 	return func(record string, checkDuplicates bool) []string {
 		if record == emptyField {
 			return nil
