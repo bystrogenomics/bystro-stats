@@ -60,7 +60,7 @@ func main() {
 	siteTypeColumnIdx := flag.Int("siteTypeColumnIdx", -9, "The site type column index")
 	siteTypeColumnName := flag.String("siteTypeColumnName", "refSeq.siteType", "The site type column name")
 	dbSNPnameColumnIdx := flag.Int("dbSNPnameColumnIdx", -9, "Optional. The dbSNP name column index")
-	dbSNPnameColumnName := flag.String("dbSNPnameColumnName", "dbSNP146.name", "Optional. The snp name column name")
+	dbSNPnameColumnName := flag.String("dbSNPnameColumnName", "dbSNP.name", "Optional. The snp name column name")
 	exonicAlleleFunctionColumnIdx := flag.Int("exonicAlleleFunctionColumnIdx", -9,
 		"Optional. The exonicAlleleFunction column index")
 	exonicAlleleFunctionColumnName := flag.String("exonicAlleleFunctionColumnName",
@@ -69,8 +69,8 @@ func main() {
 	fieldSeparator := flag.String("fieldSeparator", "\t", "What is used to delimit fields (',', '\t', etc)")
 	primaryDelimiter := flag.String("primaryDelimiter", ";",
 		"The primary delmiter (1D array string representation separator in input file)")
-	emptyFieldString := flag.String("emptyFieldString", "NA",
-		"What is used to denoted an empty field (NA by default)")
+	emptyFieldString := flag.String("emptyFieldString", "!",
+		"What is used to denoted an empty field (\\ by default)")
 	secondaryDelimiter := flag.String("secondaryDelimiter", "|",
 		"The secondary delmiter (2D array string representation outer separator in input file)")
 	numberInputHeaderLines := flag.Int("numberInputHeaderLines", 1, "How many header lines does your input file have (0 is possible)")
@@ -176,26 +176,12 @@ func main() {
 	var isTransversion bool
 
 	discordantCount := 0
-	// weirdSites := 0
-	// insCount := 0
-	// delCount := 0
-	// multiCount := 0
-	// snpCount := 0
-	// fields := []int{*referenceColumnIdx, *alleleColumnIdx}
 
-	// Expects to place:
-	// total => transitions => n
-	// total => transversions => n
-	// total => trTvRatio => n.y
-	// sampleId => siteType transitions => n
-	// sampleId => siteType transversions => n
-	// total => siteType transitions => ...
-
-	// sampleId|total : siteType|total|exonAlleleFunc = N
+	//Form: sampleId|total : siteType|total|exonAlleleFunc = N
 	trMap := make(map[string]map[string]int, 1000)
 	tvMap := make(map[string]map[string]int, 1000)
 
-	// sampleId|total : siteType|total|exonAlleleFunc = Y
+	//Form: sampleId|total : siteType|total|exonAlleleFunc = Y
 	ratioMap := make(map[string]map[string]jsonFloat, 1000)
 
 	totalKey := "total"
@@ -324,7 +310,7 @@ func main() {
 
 		record = strings.Split(row, *fieldSeparator)
 
-		// spew.Dump(record)
+		// Skip things that are multi-allelic, or SNP sites that have 2 non-ref alleles
 		if len(record[*alleleColumnIdx]) > 1 {
 			continue
 		}
@@ -334,14 +320,8 @@ func main() {
 
 		if transitionsMap[record[*referenceColumnIdx]][record[*alleleColumnIdx]] == true {
 			isTransition = true
-			// if record[2] != "SNP" {
-			//  weirdSites++
-			// }
 		} else if transversionsMap[record[*referenceColumnIdx]][record[*alleleColumnIdx]] == true {
 			isTransversion = true
-			// if record[2] != "SNP" {
-			//  weirdSites++
-			// }
 		} else if record[2] == "SNP" && *countSNPmulti == true {
 			discordantCount++
 			discordantRows = append(discordantRows, record)
@@ -354,36 +334,12 @@ func main() {
 		// remove everything but the total key
 		samples = samples[:1]
 
-		// var allSamples bytes.Buffer
-		// allSamples.WriteString(record[*heterozygotesColumnIdx])
-		// allSamples.WriteString(*secondaryDelimiter)
-		// allSamples.WriteString(record[*homozygotesColumnIdx])
-		// samples = append(samples, fillArrayFunc(allSamples.String(), make(map[string]struct{}))...)
+		// Make siteTypes, exonicTypes, and samples unique; struct{} takes up no additional space
+		// http://stackoverflow.com/questions/9251234/go-append-if-unique
+		// Samples are assumed to be unique already, so uniqueness test flags disabled
 		samples = append(samples, fillArrayFunc(record[*heterozygotesColumnIdx], false, false)...)
-
 		samples = append(samples, fillArrayFunc(record[*homozygotesColumnIdx], false, false)...)
-
-		// // if record[2] == "MULTIALLELIC" {
-		// //   multiCount++
-		// // } else if record[2] == "DEL" {
-		// //   delCount++
-		// // } else if record[2] == "INS" {
-		// //   insCount++
-		// // } else if record[2] == "SNP" {
-		// //   snpCount++
-		// // }
-		// // Make siteTypes, exonicTypes, and samples unique; struct{} takes up no additional space
-		// // http://stackoverflow.com/questions/9251234/go-append-if-unique
-		// Samples don't really need to be made this way, convenience out of re-using
-		// function for siteTypes, exonicAlleleFunctions, and samples
-
-		// var allSiteTypes bytes.Buffer
-		// allSiteTypes.WriteString(record[*siteTypeColumnIdx])
-		// allSiteTypes.WriteString(*secondaryDelimiter)
-		// allSiteTypes.WriteString(record[*exonicAlleleFunctionColumnIdx])
-
-		// seenValues := make(map[string]struct{})
-		siteTypes = fillArrayFunc( /*allSiteTypes.String()*/ record[*siteTypeColumnIdx], true, true)
+		siteTypes = fillArrayFunc(record[*siteTypeColumnIdx], true, true)
 
 		if hasExonicColumn == true {
 			if siteTypes == nil {
@@ -397,9 +353,6 @@ func main() {
 			if _, exists := trMap[sample]; !exists {
 				trMap[sample] = make(map[string]int, 200)
 				tvMap[sample] = make(map[string]int, 200)
-				// fmt.Printf("making map %s %s\n", sample, totalKey)
-				// trMap[sample][totalKey] = 0
-				// tvMap[sample][totalKey] = 0
 			}
 
 			if isTransition == true {
@@ -409,12 +362,6 @@ func main() {
 			}
 
 			for _, siteType := range siteTypes {
-				// if _, exists := trMap[sample][siteType]; !exists {
-				//  // fmt.Printf("making map %s %s\n", sample, siteType)
-				//  trMap[sample][siteType] = 0
-				//  tvMap[sample][siteType] = 0
-				// }
-
 				if isTransition == true {
 					trMap[sample][siteType]++
 				} else if isTransversion == true {
@@ -519,8 +466,6 @@ func main() {
 	totalRatioName.WriteString(" ")
 	totalRatioName.WriteString(trTvRatioKey)
 
-	// numberOfSamples := len(allMap)
-
 	var sampleNames []string
 
 	siteTypes = nil
@@ -587,6 +532,7 @@ func main() {
 	// fmt.Printf("Transition:Transversion Ratio mean %f\n", trTvMean)
 	// fmt.Printf("Transition:Transversion Ratio median %f\n", trTvMedian)
 	// fmt.Printf("Transition:Transversion Ratio standard deviation %f\n", trTvSd)
+
 	// this one contains both counts and ratios, and is what we put into the return json
 	// sampleId|total : "siteType|total|exonAlleleFunc transitions|transversions|ratio" = Z
 	allMap := make(map[string]map[string]interface{}, 2)
@@ -616,11 +562,7 @@ func main() {
 		}
 	}
 
-	//FOR SOME REASON, when I
-	// spew.Dump(allMap["samples"]), I get the samples as keys, and null values
-	// I expected nothign (allMap[results][samples])
-	// Write output as a tabbed file
-
+	/* Write Tab output */
 	outFh := (*os.File)(nil)
 
 	if *outputTabPath != "" {
@@ -642,7 +584,7 @@ func main() {
 	}
 
 	// first column is for sample names
-	outLines := [][]string{append([]string{"\t"}, siteTypes...)}
+	outLines := [][]string{append([]string{*fieldSeparator}, siteTypes...)}
 
 	for _, sampleName := range sampleNames {
 		// First column is for the sample name
@@ -655,6 +597,8 @@ func main() {
 				line = append(line, strconv.Itoa(value))
 			case jsonFloat:
 				line = append(line, strconv.FormatFloat(float64(value), 'f', -1, 64))
+			default:
+				line = append(line, *emptyFieldString)
 			}
 		}
 
