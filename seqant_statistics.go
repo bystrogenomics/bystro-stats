@@ -496,6 +496,8 @@ func main() {
 		}
 	}
 
+	numSamples := len(sampleNames)
+
 	// sampleNames =
 	sort.Strings(sampleNames)
 	// We skipped the totalKey above, so that we may put it first
@@ -539,6 +541,7 @@ func main() {
 	allMap["stats"] = map[string]interface{}{
 		trTvRatioMeanKey: jsonFloat(trTvMean), trTvRatioMedianKey: jsonFloat(trTvMedian),
 		trTvRatioStdDevKey: jsonFloat(trTvSd),
+		"samples": numSamples,
 	}
 
 	allMap["results"] = map[string]interface{}{
