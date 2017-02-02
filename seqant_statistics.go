@@ -222,6 +222,11 @@ func main() {
 	discordantRows := make([][]string, 0, 400)
 
 	var record []string
+
+	// Initialize a default row lenght; this is just long enough to contain
+	// the default ref field index
+	// We will update this in our header reader
+	rowLength := 9
 	for {
 		// http://stackoverflow.com/questions/8757389/reading-file-line-by-line-in-go
 		// http://www.jeffduckett.com/blog/551119d6c6b86364cef12da7/golang---read-a-file-line-by-line.html
@@ -245,6 +250,8 @@ func main() {
 
 			if rowCount == 1 && *numberInputHeaderLines == 1 {
 				record = strings.Split(row, *fieldSeparator)
+
+				rowLength = len(record)
 
 				if *referenceColumnName != "" {
 					*referenceColumnIdx = findIndex(record, *referenceColumnName)
@@ -307,6 +314,11 @@ func main() {
 		}
 
 		record = strings.Split(row, *fieldSeparator)
+
+		// Skip very short lines
+		if len(record) < rowLength {
+			continue
+		}
 
 		// Skip things that are multi-allelic, or SNP sites that have 2 non-ref alleles
 		if len(record[*alleleColumnIdx]) > 1 {
