@@ -34,7 +34,7 @@ func (value jsonFloat) MarshalJSON() ([]byte, error) {
 		return []byte("null"), nil
 	}
 
-	return []byte(strconv.FormatFloat(float64(value), 'f', -1, 64)), nil
+	return []byte(fmt.Sprintf("%.3f", value)), nil
 }
 
 // NOTE: For now this only supports \n end of line characters
@@ -553,7 +553,7 @@ func main() {
 	allMap["stats"] = map[string]interface{}{
 		trTvRatioMeanKey: jsonFloat(trTvMean), trTvRatioMedianKey: jsonFloat(trTvMedian),
 		trTvRatioStdDevKey: jsonFloat(trTvSd),
-		"samples": numSamples,
+		"samples":          numSamples,
 	}
 
 	allMap["results"] = map[string]interface{}{
