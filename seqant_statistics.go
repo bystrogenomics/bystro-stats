@@ -296,7 +296,7 @@ func main() {
 				if *dbSNPnameColumnName != "" {
 					*dbSNPnameColumnIdx = findIndex(record, *dbSNPnameColumnName)
 
-					if *dbSNPnameColumnIdx == -9 {
+					if *dbSNPnameColumnIdx != -9 {
 						hasDbSnpColumn = true
 					}
 				}
