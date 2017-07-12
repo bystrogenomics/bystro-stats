@@ -44,6 +44,8 @@ func main() {
 	outputJSONPath := flag.String("outputJSONPath", "", "The output path for the JSON output (optional)")
 	outputTabPath := flag.String("outputTabPath", "", "The output path for tab-delimited file")
 	outputQcTabPath := flag.String("outputQcTabPath", "", "The output path for tab-delimited quality control file")
+	trTvColumnIdx := flag.Int("trTvColumnIdx", -9, "The trTv column index")
+	trTvColumnName := flag.String("trTvColumnName", "trTv", "The trTv column name.")
 	referenceColumnIdx := flag.Int("referenceColumnIdx", 8, "The reference base column index")
 	referenceColumnName := flag.String("referenceColumnName", "",
 		"The reference base column name. This is usually the name of the assembly")
@@ -223,6 +225,7 @@ func main() {
 
 	var record []string
 
+	var simpleTrTv bool
 	// Initialize a default row lenght; this is just long enough to contain
 	// the default ref field index
 	// We will update this in our header reader
@@ -252,6 +255,12 @@ func main() {
 				record = strings.Split(row, *fieldSeparator)
 
 				rowLength = len(record)
+
+				if *trTvColumnIdx == -9 && *trTvColumnName != "" {
+					*trTvColumnIdx = findIndex(record, *trTvColumnName)
+
+					simpleTrTv = *trTvColumnIdx != -9
+				}
 
 				if *referenceColumnName != "" {
 					*referenceColumnIdx = findIndex(record, *referenceColumnName)
@@ -328,13 +337,26 @@ func main() {
 		isTransition = false
 		isTransversion = false
 
-		if transitionsMap[record[*referenceColumnIdx]][record[*alleleColumnIdx]] == true {
-			isTransition = true
-		} else if transversionsMap[record[*referenceColumnIdx]][record[*alleleColumnIdx]] == true {
-			isTransversion = true
-		} else if record[2] == "SNP" && *countSNPmulti == true {
-			discordantCount++
-			discordantRows = append(discordantRows, record)
+		if simpleTrTv {
+			if record[*trTvColumnIdx] != "0" {
+				if record[*trTvColumnIdx] == "1" {
+					isTransition = true
+				} else {
+					isTransversion = true
+				}
+			} else if *countSNPmulti == true && record[2] == "SNP" {
+				discordantCount++
+				discordantRows = append(discordantRows, record)
+			}
+		} else {
+			if transitionsMap[record[*referenceColumnIdx]][record[*alleleColumnIdx]] == true {
+				isTransition = true
+			} else if transversionsMap[record[*referenceColumnIdx]][record[*alleleColumnIdx]] == true {
+				isTransversion = true
+			} else if *countSNPmulti == true && record[2] == "SNP" {
+				discordantCount++
+				discordantRows = append(discordantRows, record)
+			}
 		}
 
 		if hasDbSnpColumn {
