@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"github.com/akotlar/sequtils/parse"
 
 	// "github.com/davecgh/go-spew/spew"
 	// "math/big"
@@ -37,50 +38,71 @@ func (value jsonFloat) MarshalJSON() ([]byte, error) {
 	return []byte(fmt.Sprintf("%.3f", value)), nil
 }
 
+
 // NOTE: For now this only supports \n end of line characters
 // If we want to support CLRF or whatever, use either csv package, or set a different delimiter
 func main() {
-	inputFilePath := flag.String("inPath", "", "The input file path (optional: default is stdin)")
-	outputJSONPath := flag.String("outputJSONPath", "", "The output path for the JSON output (optional)")
-	outputTabPath := flag.String("outputTabPath", "", "The output path for tab-delimited file")
-	outputQcTabPath := flag.String("outputQcTabPath", "", "The output path for tab-delimited quality control file")
-	trTvColumnIdx := flag.Int("trTvColumnIdx", -9, "The trTv column index")
-	trTvColumnName := flag.String("trTvColumnName", "trTv", "The trTv column name.")
-	referenceColumnIdx := flag.Int("referenceColumnIdx", 8, "The reference base column index")
-	referenceColumnName := flag.String("referenceColumnName", "",
+	var inputFilePath string
+	flag.StringVar(&inputFilePath, "inPath", "", "The input file path (optional: default is stdin)")
+	
+	var outputJSONPath string
+	flag.StringVar(&outputJSONPath, "outputJSONPath", "", "The output path for the JSON output (optional)")
+	
+	var outputTabPath string
+	flag.StringVar(&outputTabPath, "outputTabPath", "", "The output path for tab-delimited file")
+	
+	var outputQcTabPath string
+	flag.StringVar(&outputQcTabPath, "outputQcTabPath", "", "The output path for tab-delimited quality control file")
+	
+	var trTvColumnName string
+	flag.StringVar(&trTvColumnName, "trTvColumnName", "trTv", "The trTv column name.")
+	
+	var referenceColumnName string
+	flag.StringVar(&referenceColumnName, "referenceColumnName", "",
 		"The reference base column name. This is usually the name of the assembly")
-	alleleColumnIdx := flag.Int("alleleColumnIdx", -9, "The allele column index")
-	alleleColumnName := flag.String("alleleColumnName", "minorAlleles", "The alleles column name")
-	homozygotesColumnIdx := flag.Int("homozygotesColumnIdx", -9,
-		"The homozygous sample column index")
-	homozygotesColumnName := flag.String("homozygotesColumnName", "homozygotes",
+
+	var alleleColumnName string
+	flag.StringVar(&alleleColumnName, "alleleColumnName", "minorAlleles", "The alleles column name")
+		
+	var homozygotesColumnName string
+	flag.StringVar(&homozygotesColumnName, "homozygotesColumnName", "homozygotes",
 		"The homozygous sample column name")
-	heterozygotesColumnIdx := flag.Int("heterozygotesColumnIdx", -9,
-		"The heterozygous sample column index")
-	heterozygotesColumnName := flag.String("heterozygotesColumnName", "heterozygotes",
+	
+	var heterozygotesColumnName string 
+	flag.StringVar(&heterozygotesColumnName, "heterozygotesColumnName", "heterozygotes",
 		"The homozygous sample column name")
-	siteTypeColumnIdx := flag.Int("siteTypeColumnIdx", -9, "The site type column index")
-	siteTypeColumnName := flag.String("siteTypeColumnName", "refSeq.siteType", "The site type column name")
-	dbSNPnameColumnIdx := flag.Int("dbSNPnameColumnIdx", -9, "Optional. The dbSNP name column index")
-	dbSNPnameColumnName := flag.String("dbSNPnameColumnName", "dbSNP.name", "Optional. The snp name column name")
-	exonicAlleleFunctionColumnIdx := flag.Int("exonicAlleleFunctionColumnIdx", -9,
-		"Optional. The exonicAlleleFunction column index")
-	exonicAlleleFunctionColumnName := flag.String("exonicAlleleFunctionColumnName",
+	
+	var siteTypeColumnName string
+	flag.StringVar(&siteTypeColumnName, "siteTypeColumnName", "refSeq.siteType", "The site type column name")
+
+	var dbSNPnameColumnName string
+	flag.StringVar(&dbSNPnameColumnName, "dbSNPnameColumnName", "dbSNP.name", "Optional. The snp name column name")
+	
+	var exonicAlleleFunctionColumnName string
+	flag.StringVar(&exonicAlleleFunctionColumnName, "exonicAlleleFunctionColumnName",
 		"refSeq.codonEffect", `Optional. The name of the column that has exonicAlleleFunction, aka the one that has
     nonSynonymous, synonymous, etc values`)
-	fieldSeparator := flag.String("fieldSeparator", "\t", "What is used to delimit fields (',', '\t', etc)")
-	primaryDelimiter := flag.String("primaryDelimiter", ";",
+	
+	var fieldSeparator string
+	flag.StringVar(&fieldSeparator, "fieldSeparator", "\t", "What is used to delimit fields (',', '\t', etc)")
+	
+	var primaryDelimiter string
+	flag.StringVar(&primaryDelimiter, "primaryDelimiter", ";",
 		"The primary delmiter (1D array string representation separator in input file)")
-	emptyFieldString := flag.String("emptyFieldString", "!",
+	
+	var emptyFieldString string
+	flag.StringVar(&emptyFieldString, "emptyFieldString", "!",
 		"What is used to denoted an empty field (\\ by default)")
-	numberInputHeaderLines := flag.Int("numberInputHeaderLines", 1, "How many header lines does your input file have (0 is possible)")
-	countSNPmulti := flag.Bool("countSNPmulti", false, "Count SNP sites that have 2 non-reference alleles")
+	
+	var countSNPmulti bool
+	flag.BoolVar(&countSNPmulti, "countSNPmulti", false, "Count SNP sites that have 2 non-reference alleles")
 
-	cpuprofile := flag.String("cpuProfile", "", "write cpu profile to file")
+	var cpuProfile string
+	flag.StringVar(&cpuProfile, "cpuProfile", "", "write cpu profile to file")
 	flag.Parse()
 
-	if *cpuprofile != "" {
-		f, err := os.Create(*cpuprofile)
+	if cpuProfile != "" {
+		f, err := os.Create(cpuProfile)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -90,9 +112,9 @@ func main() {
 
 	inFh := (*os.File)(nil)
 
-	if *inputFilePath != "" {
+	if inputFilePath != "" {
 		var err error
-		inFh, err = os.Open(*inputFilePath)
+		inFh, err = os.Open(inputFilePath)
 
 		if err != nil {
 			log.Fatal(err)
@@ -104,76 +126,43 @@ func main() {
 	// make sure it gets closed
 	defer inFh.Close()
 
-	if *referenceColumnIdx == -9 && (*referenceColumnName == "" || *numberInputHeaderLines != 1) {
+	trTvColumnIdx := -9
+	referenceColumnIdx := -9
+	alleleColumnIdx := -9
+	homozygotesColumnIdx := -9
+	heterozygotesColumnIdx := -9
+	siteTypeColumnIdx := -9
+	dbSNPnameColumnIdx := -9
+	exonicAlleleFunctionColumnIdx := -9
+
+	numberInputHeaderLines := 1
+
+	if referenceColumnName == ""{
 		log.Fatal(`If referenceColumnIdx not provided, referenceColumnName must be, and
       the numberInputHeaderLines must equal 1`)
-		os.Exit(1)
 	}
 
-	if *alleleColumnIdx == -9 && (*alleleColumnName == "" || *numberInputHeaderLines != 1) {
+	if alleleColumnName == "" {
 		log.Fatal(`If alleleColumnIdx not provided, alleleColumnName must be, and
       the numberInputHeaderLines must equal 1`)
-		os.Exit(1)
 	}
 
-	if *homozygotesColumnIdx == -9 && (*homozygotesColumnName == "" || *numberInputHeaderLines != 1) {
+	if homozygotesColumnName == "" {
 		log.Fatal(`If homozygotesColumnIdx not provided, homozygotesColumnName must be, and
       the numberInputHeaderLines must equal 1`)
-		os.Exit(1)
 	}
 
-	if *heterozygotesColumnIdx == -9 && (*heterozygotesColumnName == "" || *numberInputHeaderLines != 1) {
+	if heterozygotesColumnName == "" {
 		log.Fatal(`If heterozygotesColumnIdx not provided, heterozygotesColumnName must be, and
       the numberInputHeaderLines must equal 1`)
-		os.Exit(1)
 	}
 
-	if *siteTypeColumnIdx == -9 && (*siteTypeColumnName == "" || *numberInputHeaderLines != 1) {
+	if siteTypeColumnName == ""{
 		log.Fatal(`If siteTypeColumnIdx not provided, siteTypeColumnName must be, and
       the numberInputHeaderLines must equal 1`)
-		os.Exit(1)
 	}
 
-	// if *exonicAlleleFunctionColumnIdx == -9 && (*exonicAlleleFunctionColumnName == "" || *numberInputHeaderLines != 1) {
-	// 	log.Fatal(`If exonicAlleleFunctionColumnIdx not provided, exonicAlleleFunctionColumnName must be,
-	//     and numberInputHeaderLines must be equal 1`)
-	// 	os.Exit(1)
-	// }
-
-	// Beacuse I don't know how to pass a rune...
-	if *fieldSeparator != "\t" && *fieldSeparator != "," {
-		log.Fatal("fieldSeparator must be a comma or tab")
-		os.Exit(1)
-	}
-
-	transitionsMap := map[string]map[string]bool{
-		"A": map[string]bool{"G": true},
-		"G": map[string]bool{"A": true},
-		"T": map[string]bool{"C": true},
-		"C": map[string]bool{"T": true},
-	}
-
-	transversionsMap := map[string]map[string]bool{
-		"A": map[string]bool{
-			"T": true,
-			"C": true,
-		},
-		"G": map[string]bool{
-			"T": true,
-			"C": true,
-		},
-		"T": map[string]bool{
-			"A": true,
-			"G": true,
-		},
-		"C": map[string]bool{
-			"A": true,
-			"G": true,
-		},
-	}
-
-	var isTransition bool
-	var isTransversion bool
+	var trTv string
 
 	discordantCount := 0
 
@@ -195,10 +184,10 @@ func main() {
 	dbSnpKey := "_in_dbSNP"
 
 	// if user gives us dbSNP
-	hasDbSnpColumn := *dbSNPnameColumnIdx != -9
+	hasDbSnpColumn := dbSNPnameColumnIdx != -9
 	hasDbSnp := false
 
-	hasExonicColumn := *exonicAlleleFunctionColumnIdx != -9
+	hasExonicColumn := exonicAlleleFunctionColumnIdx != -9
 
 	rowCount := 0
 
@@ -211,9 +200,9 @@ func main() {
 
 	dbSNPfeatureMap := make(map[string]string, 200)
 
-	fillArrayFunc := makeFillArrayFunc(*emptyFieldString, *primaryDelimiter)
+	fillArrayFunc := makeFillArrayFunc(emptyFieldString, primaryDelimiter)
 
-	nonNullFunc := makeHasNonEmptyRecordFunc(*emptyFieldString, *primaryDelimiter)
+	nonNullFunc := makeHasNonEmptyRecordFunc(emptyFieldString, primaryDelimiter)
 
 	// samples that are variant in a single row, capacity
 	samples := make([]string, 1, 1000)
@@ -248,72 +237,72 @@ func main() {
 		// // equivalent of chomp https://groups.google.com/forum/#!topic/golang-nuts/smFU8TytFr4
 		row = row[:len(row)-1]
 
-		if rowCount < *numberInputHeaderLines {
+		if rowCount < numberInputHeaderLines {
 			rowCount++
 
-			if rowCount == 1 && *numberInputHeaderLines == 1 {
-				record = strings.Split(row, *fieldSeparator)
+			if rowCount == 1 && numberInputHeaderLines == 1 {
+				record = strings.Split(row, fieldSeparator)
 
 				rowLength = len(record)
 
-				if *trTvColumnIdx == -9 && *trTvColumnName != "" {
-					*trTvColumnIdx = findIndex(record, *trTvColumnName)
+				if trTvColumnIdx == -9 && trTvColumnName != "" {
+					trTvColumnIdx = findIndex(record, trTvColumnName)
 
-					simpleTrTv = *trTvColumnIdx != -9
+					simpleTrTv = trTvColumnIdx != -9
 				}
 
-				if *referenceColumnName != "" {
-					*referenceColumnIdx = findIndex(record, *referenceColumnName)
+				if referenceColumnName != "" {
+					referenceColumnIdx = findIndex(record, referenceColumnName)
 
-					if *referenceColumnIdx == -9 {
+					if referenceColumnIdx == -9 {
 						log.Fatal("referenceColumnName not found")
 					}
 				}
 
-				if *alleleColumnName != "" {
-					*alleleColumnIdx = findIndex(record, *alleleColumnName)
+				if alleleColumnName != "" {
+					alleleColumnIdx = findIndex(record, alleleColumnName)
 
-					if *alleleColumnIdx == -9 {
+					if alleleColumnIdx == -9 {
 						log.Fatal("alleleColumnName not found")
 					}
 				}
 
-				if *heterozygotesColumnName != "" {
-					*heterozygotesColumnIdx = findIndex(record, *heterozygotesColumnName)
+				if heterozygotesColumnName != "" {
+					heterozygotesColumnIdx = findIndex(record, heterozygotesColumnName)
 
-					if *heterozygotesColumnIdx == -9 {
+					if heterozygotesColumnIdx == -9 {
 						log.Fatal("heterozygotesColumnName not found")
 					}
 				}
 
-				if *homozygotesColumnName != "" {
-					*homozygotesColumnIdx = findIndex(record, *homozygotesColumnName)
+				if homozygotesColumnName != "" {
+					homozygotesColumnIdx = findIndex(record, homozygotesColumnName)
 
-					if *homozygotesColumnIdx == -9 {
+					if homozygotesColumnIdx == -9 {
 						log.Fatal("homozygotesColumnName not found")
 					}
 				}
 
-				if *siteTypeColumnName != "" {
-					*siteTypeColumnIdx = findIndex(record, *siteTypeColumnName)
+				if siteTypeColumnName != "" {
+					siteTypeColumnIdx = findIndex(record, siteTypeColumnName)
 
-					if *siteTypeColumnIdx == -9 {
+					if siteTypeColumnIdx == -9 {
 						log.Fatal("siteTypeColumnNme not found")
 					}
 				}
 
-				if *dbSNPnameColumnName != "" {
-					*dbSNPnameColumnIdx = findIndex(record, *dbSNPnameColumnName)
+				if dbSNPnameColumnName != "" {
+					dbSNPnameColumnIdx = findIndex(record, dbSNPnameColumnName)
 
-					if *dbSNPnameColumnIdx != -9 {
+					if dbSNPnameColumnIdx != -9 {
 						hasDbSnpColumn = true
 					}
 				}
 
-				if *exonicAlleleFunctionColumnName != "" {
-					*exonicAlleleFunctionColumnIdx = findIndex(record, *exonicAlleleFunctionColumnName)
+				if exonicAlleleFunctionColumnName != "" {
+					exonicAlleleFunctionColumnIdx = findIndex(record, exonicAlleleFunctionColumnName)
 
-					if *exonicAlleleFunctionColumnIdx != -9 {
+					if exonicAlleleFunctionColumnIdx != -9 {
 						hasExonicColumn = true
 					}
 				}
@@ -322,45 +311,29 @@ func main() {
 			continue
 		}
 
-		record = strings.Split(row, *fieldSeparator)
+		record = strings.Split(row, fieldSeparator)
 
 		// Skip very short lines
 		if len(record) < rowLength {
 			continue
 		}
 
-		// Skip things that are multi-allelic, or SNP sites that have 2 non-ref alleles
-		if len(record[*alleleColumnIdx]) > 1 {
+		if record[2] != "SNP" {
 			continue
 		}
 
-		isTransition = false
-		isTransversion = false
-
-		if simpleTrTv {
-			if record[*trTvColumnIdx] != "0" {
-				if record[*trTvColumnIdx] == "1" {
-					isTransition = true
-				} else {
-					isTransversion = true
-				}
-			} else if *countSNPmulti == true && record[2] == "SNP" {
-				discordantCount++
-				discordantRows = append(discordantRows, record)
-			}
+		if !simpleTrTv {
+			trTv = string(parse.TrTv(record[referenceColumnIdx], record[alleleColumnIdx]))
 		} else {
-			if transitionsMap[record[*referenceColumnIdx]][record[*alleleColumnIdx]] == true {
-				isTransition = true
-			} else if transversionsMap[record[*referenceColumnIdx]][record[*alleleColumnIdx]] == true {
-				isTransversion = true
-			} else if *countSNPmulti == true && record[2] == "SNP" {
-				discordantCount++
-				discordantRows = append(discordantRows, record)
-			}
+			trTv = record[trTvColumnIdx]
+		}
+
+		if trTv != "0" {
+			continue;
 		}
 
 		if hasDbSnpColumn {
-			hasDbSnp = nonNullFunc(record[*dbSNPnameColumnIdx])
+			hasDbSnp = nonNullFunc(record[dbSNPnameColumnIdx])
 		}
 
 		// remove everything but the total key
@@ -369,15 +342,15 @@ func main() {
 		// Make siteTypes, exonicTypes, and samples unique; struct{} takes up no additional space
 		// http://stackoverflow.com/questions/9251234/go-append-if-unique
 		// Samples are assumed to be unique already, so uniqueness test flags disabled
-		samples = append(samples, fillArrayFunc(record[*heterozygotesColumnIdx], false)...)
-		samples = append(samples, fillArrayFunc(record[*homozygotesColumnIdx], false)...)
-		siteTypes = fillArrayFunc(record[*siteTypeColumnIdx], true)
+		samples = append(samples, fillArrayFunc(record[heterozygotesColumnIdx], false)...)
+		samples = append(samples, fillArrayFunc(record[homozygotesColumnIdx], false)...)
+		siteTypes = fillArrayFunc(record[siteTypeColumnIdx], true)
 
 		if hasExonicColumn == true {
 			if siteTypes == nil {
-				siteTypes = fillArrayFunc(record[*exonicAlleleFunctionColumnIdx], true)
+				siteTypes = fillArrayFunc(record[exonicAlleleFunctionColumnIdx], true)
 			} else {
-				siteTypes = append(siteTypes, fillArrayFunc(record[*exonicAlleleFunctionColumnIdx], true)...)
+				siteTypes = append(siteTypes, fillArrayFunc(record[exonicAlleleFunctionColumnIdx], true)...)
 			}
 		}
 
@@ -387,16 +360,16 @@ func main() {
 				tvMap[sample] = make(map[string]int, 200)
 			}
 
-			if isTransition == true {
+			if trTv == "1" {
 				trMap[sample][totalKey]++
-			} else if isTransversion == true {
+			} else {
 				tvMap[sample][totalKey]++
 			}
 
 			for _, siteType := range siteTypes {
-				if isTransition == true {
+				if trTv == "1" {
 					trMap[sample][siteType]++
-				} else if isTransversion == true {
+				} else {
 					tvMap[sample][siteType]++
 				}
 
@@ -413,9 +386,9 @@ func main() {
 						tvMap[sample][dbSNPfeatureMap[name.String()]] = 0
 					}
 
-					if isTransition == true {
+					if trTv == "1" {
 						trMap[sample][dbSNPfeatureMap[siteType]]++
-					} else if isTransversion == true {
+					} else {
 						tvMap[sample][dbSNPfeatureMap[siteType]]++
 					}
 				}
@@ -583,26 +556,26 @@ func main() {
 		"samples": samplesMap,
 	}
 
-	if *outputJSONPath != "" {
+	if outputJSONPath != "" {
 		json, err := json.Marshal(allMap)
 
 		if err != nil {
 			log.Fatal(err)
 		}
 
-		err = ioutil.WriteFile(*outputJSONPath, json, os.FileMode(0644))
+		err = ioutil.WriteFile(outputJSONPath, json, os.FileMode(0644))
 
 		if err != nil {
 			log.Fatal(err)
 		}
 	}
 
-	/* Write Tab output */
+	// Write Tab output
 	outFh := (*os.File)(nil)
 
-	if *outputTabPath != "" {
+	if outputTabPath != "" {
 		var err error
-		outFh, err = os.OpenFile(*outputTabPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+		outFh, err = os.OpenFile(outputTabPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
 
 		if err != nil {
 			log.Fatal(err)
@@ -614,12 +587,10 @@ func main() {
 	defer outFh.Close()
 	writer := csv.NewWriter(outFh)
 
-	if *fieldSeparator == "\t" {
-		writer.Comma = '\t'
-	}
+	writer.Comma = rune(fieldSeparator[0])
 
 	// first column is for sample names
-	outLines := [][]string{append([]string{*fieldSeparator}, siteTypes...)}
+	outLines := [][]string{append([]string{fieldSeparator}, siteTypes...)}
 
 	for _, sampleName := range sampleNames {
 		// First column is for the sample name
@@ -633,7 +604,7 @@ func main() {
 			case jsonFloat:
 				line = append(line, strconv.FormatFloat(float64(value), 'f', -1, 64))
 			default:
-				line = append(line, *emptyFieldString)
+				line = append(line, emptyFieldString)
 			}
 		}
 
@@ -646,7 +617,7 @@ func main() {
 	outQcFh := (*os.File)(nil)
 	defer outQcFh.Close()
 
-	if *countSNPmulti == true {
+	if countSNPmulti == true {
 		fmt.Printf("\n\nFound %d SNP sites that look multi-allelic\n\n", discordantCount)
 
 		if discordantCount != 0 {
@@ -656,9 +627,9 @@ func main() {
 		}
 	}
 
-	if *outputQcTabPath != "" {
+	if outputQcTabPath != "" {
 		var err error
-		outFh, err = os.OpenFile(*outputQcTabPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+		outFh, err = os.OpenFile(outputQcTabPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
 
 		if err != nil {
 			log.Fatal(err)
@@ -669,9 +640,7 @@ func main() {
 
 	writer = csv.NewWriter(outQcFh)
 
-	if *fieldSeparator == "\t" {
-		writer.Comma = '\t'
-	}
+	writer.Comma = rune(fieldSeparator[0])
 
 	outQcLines := [][]string{
 		[]string{"Transition:Transversion Ratio Mean", strconv.FormatFloat(trTvMean, 'f', -1, 64)},
