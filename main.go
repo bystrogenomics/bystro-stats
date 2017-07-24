@@ -328,7 +328,7 @@ func main() {
 			trTv = record[trTvColumnIdx]
 		}
 
-		if trTv != "0" {
+		if trTv == "0" {
 			continue;
 		}
 
