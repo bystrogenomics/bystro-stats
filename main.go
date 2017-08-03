@@ -16,7 +16,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"github.com/akotlar/sequtils/parse"
+	"github.com/akotlar/bystro-utils/parse"
 
 	// "github.com/davecgh/go-spew/spew"
 	// "math/big"
@@ -323,12 +323,12 @@ func main() {
 		}
 
 		if !simpleTrTv {
-			trTv = string(parse.TrTv(record[referenceColumnIdx], record[alleleColumnIdx]))
+			trTv = parse.GetTrTv(record[referenceColumnIdx], record[alleleColumnIdx])
 		} else {
 			trTv = record[trTvColumnIdx]
 		}
 
-		if trTv == "0" {
+		if trTv == parse.NotTrTv {
 			continue;
 		}
 
@@ -360,14 +360,14 @@ func main() {
 				tvMap[sample] = make(map[string]int, 200)
 			}
 
-			if trTv == "1" {
+			if trTv == parse.Tr {
 				trMap[sample][totalKey]++
 			} else {
 				tvMap[sample][totalKey]++
 			}
 
 			for _, siteType := range siteTypes {
-				if trTv == "1" {
+				if trTv == parse.Tr {
 					trMap[sample][siteType]++
 				} else {
 					tvMap[sample][siteType]++
@@ -386,7 +386,7 @@ func main() {
 						tvMap[sample][dbSNPfeatureMap[name.String()]] = 0
 					}
 
-					if trTv == "1" {
+					if trTv == parse.Tr {
 						trMap[sample][dbSNPfeatureMap[siteType]]++
 					} else {
 						tvMap[sample][dbSNPfeatureMap[siteType]]++
