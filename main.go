@@ -43,59 +43,58 @@ func (value jsonFloat) MarshalJSON() ([]byte, error) {
 // If we want to support CLRF or whatever, use either csv package, or set a different delimiter
 func main() {
 	var inputFilePath string
-	flag.StringVar(&inputFilePath, "inPath", "", "The input file path (optional: default is stdin)")
-	
-	var outputJSONPath string
-	flag.StringVar(&outputJSONPath, "outputJSONPath", "", "The output path for the JSON output (optional)")
+	flag.StringVar(&inputFilePath, "inPath", "", "The input file path (default: stdin)")
 	
 	var outputTabPath string
-	flag.StringVar(&outputTabPath, "outputTabPath", "", "The output path for tab-delimited file")
+	flag.StringVar(&outputTabPath, "outputTabPath", "", "The output path for tab-delimited file (default: stdout)")
 	
 	var outputQcTabPath string
-	flag.StringVar(&outputQcTabPath, "outputQcTabPath", "", "The output path for tab-delimited quality control file")
+	flag.StringVar(&outputQcTabPath, "outputQcTabPath", "", "The output path for tab-delimited quality control file (default: stdout)")
+
+	var outputJSONPath string
+	flag.StringVar(&outputJSONPath, "outputJSONPath", "", "The output path for JSON output if you wish for it (default: '')")
 	
 	var trTvColumnName string
-	flag.StringVar(&trTvColumnName, "trTvColumnName", "trTv", "The trTv column name.")
+	flag.StringVar(&trTvColumnName, "trTvColumnName", "trTv", "The trTv column name (default: trTv)")
 	
 	var referenceColumnName string
-	flag.StringVar(&referenceColumnName, "referenceColumnName", "",
-		"The reference base column name. This is usually the name of the assembly")
+	flag.StringVar(&referenceColumnName, "referenceColumnName", "ref",
+		"The reference base column name. This is usually the name of the assembly (default: ref)")
 
 	var alleleColumnName string
-	flag.StringVar(&alleleColumnName, "alleleColumnName", "minorAlleles", "The alleles column name")
+	flag.StringVar(&alleleColumnName, "alleleColumnName", "alt", "The alleles column name (default: alt)")
 		
 	var homozygotesColumnName string
 	flag.StringVar(&homozygotesColumnName, "homozygotesColumnName", "homozygotes",
-		"The homozygous sample column name")
+		"The homozygous sample column name (default: homozygotes)")
 	
 	var heterozygotesColumnName string 
 	flag.StringVar(&heterozygotesColumnName, "heterozygotesColumnName", "heterozygotes",
-		"The homozygous sample column name")
+		"The homozygous sample column name (default: heterozygotes)")
 	
 	var siteTypeColumnName string
-	flag.StringVar(&siteTypeColumnName, "siteTypeColumnName", "refSeq.siteType", "The site type column name")
+	flag.StringVar(&siteTypeColumnName, "siteTypeColumnName", "refSeq.siteType", "The site type column name (default: refSeq.siteType)")
 
 	var dbSNPnameColumnName string
-	flag.StringVar(&dbSNPnameColumnName, "dbSNPnameColumnName", "dbSNP.name", "Optional. The snp name column name")
+	flag.StringVar(&dbSNPnameColumnName, "dbSNPnameColumnName", "dbSNP.name", "Optional. The snp name column name (default: dbSNP.name)")
 	
 	var exonicAlleleFunctionColumnName string
 	flag.StringVar(&exonicAlleleFunctionColumnName, "exonicAlleleFunctionColumnName",
-		"refSeq.codonEffect", `Optional. The name of the column that has exonicAlleleFunction, aka the one that has
-    nonSynonymous, synonymous, etc values`)
+		"refSeq.exonicAlleleFunction", `The name of the column that has nonSynonymous, synonymous, etc values (default: refSeq.exonicAlleleFunction)`)
 	
 	var fieldSeparator string
-	flag.StringVar(&fieldSeparator, "fieldSeparator", "\t", "What is used to delimit fields (',', '\t', etc)")
+	flag.StringVar(&fieldSeparator, "fieldSeparator", "\t", "What is used to delimit fields (deault '\\t')")
 	
 	var primaryDelimiter string
 	flag.StringVar(&primaryDelimiter, "primaryDelimiter", ";",
-		"The primary delmiter (1D array string representation separator in input file)")
+		"The value delimiter (default ';')")
 	
 	var emptyFieldString string
 	flag.StringVar(&emptyFieldString, "emptyFieldString", "!",
-		"What is used to denoted an empty field (\\ by default)")
+		"What is used to denoted an empty field (default: '!')")
 	
 	var countSNPmulti bool
-	flag.BoolVar(&countSNPmulti, "countSNPmulti", false, "Count SNP sites that have 2 non-reference alleles")
+	flag.BoolVar(&countSNPmulti, "countSNPmulti", false, "Count SNP sites that have 2 non-reference alleles (default: false")
 
 	var cpuProfile string
 	flag.StringVar(&cpuProfile, "cpuProfile", "", "write cpu profile to file")
@@ -520,6 +519,10 @@ func main() {
 	var trTvSd float64
 
 	if len(trTvRatioArray) > 0 {
+		sort.Slice(trTvRatioArray, func(a, b int) bool {
+			return trTvRatioArray[a] < trTvRatioArray[b];
+		});
+
 		trTvMean = mean(trTvRatioArray)
 		trTvMedian = median(trTvRatioArray)
 
