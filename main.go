@@ -163,8 +163,6 @@ func main() {
 
 	var trTv string
 
-	discordantCount := 0
-
 	//Form: sampleId|total : siteType|total|exonAlleleFunc = N
 	trMap := make(map[string]map[string]int, 1000)
 	tvMap := make(map[string]map[string]int, 1000)
@@ -197,19 +195,16 @@ func main() {
 	trMap[totalKey][totalKey] = 0
 	tvMap[totalKey][totalKey] = 0
 
-	dbSNPfeatureMap := make(map[string]string, 200)
+	featureCache := make(map[string]string, 200)
 
 	fillArrayFunc := makeFillArrayFunc(emptyFieldString, primaryDelimiter)
-
-	nonNullFunc := makeHasNonEmptyRecordFunc(emptyFieldString, primaryDelimiter)
 
 	// samples that are variant in a single row, capacity
 	samples := make([]string, 1, 1000)
 	samples[0] = totalKey
 
-	siteTypes := make([]string, 0, 200)
-
-	discordantRows := make([][]string, 0, 400)
+	siteTypes := make([]string, 0, 10)
+  exonicTypes := make([]string, 0, 10)
 
 	var record []string
 
@@ -244,7 +239,7 @@ func main() {
 
 				rowLength = len(record)
 
-				if trTvColumnIdx == -9 && trTvColumnName != "" {
+				if trTvColumnName != "" {
 					trTvColumnIdx = findIndex(record, trTvColumnName)
 
 					simpleTrTv = trTvColumnIdx != -9
@@ -332,7 +327,7 @@ func main() {
 		}
 
 		if hasDbSnpColumn {
-			hasDbSnp = nonNullFunc(record[dbSNPnameColumnIdx])
+			hasDbSnp = strings.Contains(record[dbSNPnameColumnIdx], "rs")
 		}
 
 		// remove everything but the total key
@@ -345,13 +340,9 @@ func main() {
 		samples = append(samples, fillArrayFunc(record[homozygotesColumnIdx], false)...)
 		siteTypes = fillArrayFunc(record[siteTypeColumnIdx], true)
 
-		if hasExonicColumn == true {
-			if siteTypes == nil {
-				siteTypes = fillArrayFunc(record[exonicAlleleFunctionColumnIdx], true)
-			} else {
-				siteTypes = append(siteTypes, fillArrayFunc(record[exonicAlleleFunctionColumnIdx], true)...)
-			}
-		}
+    if hasExonicColumn {
+      exonicTypes = fillArrayFunc(record[exonicAlleleFunctionColumnIdx], true)
+    }
 
 		for _, sample := range samples {
 			if _, exists := trMap[sample]; !exists {
@@ -365,33 +356,65 @@ func main() {
 				tvMap[sample][totalKey]++
 			}
 
-			for _, siteType := range siteTypes {
+  		for _, siteType := range siteTypes {
 				if trTv == parse.Tr {
 					trMap[sample][siteType]++
 				} else {
 					tvMap[sample][siteType]++
 				}
 
-				if hasDbSnp == true {
-					if dbSNPfeatureMap[siteType] == "" {
+				if hasDbSnp {
+					if featureCache[siteType] == "" {
 						var name bytes.Buffer
 						// siteType_in_dbSNP
 						name.WriteString(siteType)
 						name.WriteString(dbSnpKey)
 
-						dbSNPfeatureMap[siteType] = name.String()
+						featureCache[siteType] = name.String()
 
-						trMap[sample][dbSNPfeatureMap[name.String()]] = 0
-						tvMap[sample][dbSNPfeatureMap[name.String()]] = 0
+						trMap[sample][featureCache[name.String()]] = 0
+						tvMap[sample][featureCache[name.String()]] = 0
 					}
 
 					if trTv == parse.Tr {
-						trMap[sample][dbSNPfeatureMap[siteType]]++
+						trMap[sample][featureCache[siteType]]++
 					} else {
-						tvMap[sample][dbSNPfeatureMap[siteType]]++
+						tvMap[sample][featureCache[siteType]]++
 					}
 				}
 			}
+
+      if !hasExonicColumn {
+        continue
+      }
+
+      for _, siteType := range exonicTypes {
+        if trTv == parse.Tr {
+          trMap[sample][siteType]++
+        } else {
+          tvMap[sample][siteType]++
+        }
+
+        if hasDbSnp {
+          if featureCache[siteType] == "" {
+            var name bytes.Buffer
+            // siteType_in_dbSNP
+            name.WriteString(siteType)
+            name.WriteString(dbSnpKey)
+
+            featureCache[siteType] = name.String()
+
+            trMap[sample][featureCache[name.String()]] = 0
+            tvMap[sample][featureCache[name.String()]] = 0
+          }
+
+          if trTv == parse.Tr {
+            trMap[sample][featureCache[siteType]]++
+          } else {
+            tvMap[sample][featureCache[siteType]]++
+          }
+        }
+      }
 		}
 	}
 
@@ -620,16 +643,6 @@ func main() {
 	outQcFh := (*os.File)(nil)
 	defer outQcFh.Close()
 
-	if countSNPmulti == true {
-		fmt.Printf("\n\nFound %d SNP sites that look multi-allelic\n\n", discordantCount)
-
-		if discordantCount != 0 {
-			discordantWriter := csv.NewWriter(os.Stdout)
-			discordantWriter.Comma = '\t'
-			discordantWriter.WriteAll(discordantRows)
-		}
-	}
-
 	if outputQcTabPath != "" {
 		var err error
 		outFh, err = os.OpenFile(outputQcTabPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
@@ -738,26 +751,6 @@ func makeFillArrayFunc(emptyField string, primaryDelim string) func(string, bool
 		}
 
 		return out
-	}
-}
-
-func makeHasNonEmptyRecordFunc(emptyField string, primaryDelim string) func(string) bool {
-	return func(record string) bool {
-		if !strings.Contains(record, primaryDelim) {
-			if record != emptyField {
-				return true
-			}
-
-			return false
-		}
-
-		for _, innerVal := range strings.Split(record, primaryDelim) {
-			if innerVal != emptyField {
-				return true
-			}
-		}
-
-		return false
 	}
 }
 
