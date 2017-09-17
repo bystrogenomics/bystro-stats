@@ -4,19 +4,20 @@ package main
 import (
 	"bufio"
 	"bytes"
-	// "encoding/csv"
+	"encoding/csv"
 	// "encoding/json"
 	"flag"
-	"fmt"
+	// "fmt"
 	"io"
-	// "io/ioutil"
+	"io/ioutil"
 	"log"
 	"math"
 	"os"
 	"sort"
-	// "strconv"
+	"strconv"
 	"strings"
 	"github.com/akotlar/bystro-utils/parse"
+  "github.com/pquerna/ffjson/ffjson"
 
 	// "github.com/davecgh/go-spew/spew"
 	// "math/big"
@@ -27,23 +28,28 @@ import (
 type jsonFloat float64
 
 func (value jsonFloat) MarshalJSON() ([]byte, error) {
+  if float64(value) == float64(int64(value)) {
+    return []byte(strconv.Itoa(int(value))), nil
+  }
+
+  //inf will not work
 	if math.IsInf(float64(value), 1) {
 		return []byte("null"), nil
 	}
 
+  // Can't use "NA", get json: error calling MarshalJSON for type main.jsonFloat: invalid character 'N' looking for beginning of value
 	if math.IsNaN(float64(value)) {
-		// Can't use "NA", get json: error calling MarshalJSON for type main.jsonFloat: invalid character 'N' looking for beginning of value
 		return []byte("null"), nil
 	}
 
-	return []byte(fmt.Sprintf("%.3f", value)), nil
+	return []byte(strconv.FormatFloat(float64(value), 'f', 4, 64)), nil
 }
 
 type Config struct {
   inPath string
   outTabPath string
   outQcTabPath  string
-  outJSONPath string
+  outJsonPath string
   trTvColumnName string
   refColumnName string
   altColumnName string
@@ -75,19 +81,19 @@ func setup(args []string) *Config {
 	flag.StringVar(&config.inPath, "inPath", "", "The input file path (default: stdin)")
 	flag.StringVar(&config.outTabPath, "outTabPath", "", "The output path for tab-delimited file (default: stdout)")
 	flag.StringVar(&config.outQcTabPath, "outQcTabPath", "", "The output path for tab-delimited quality control file (default: stdout)")
-	flag.StringVar(&config.outJSONPath, "outJSONPath", "", "The output path for JSON output if you wish for it (default: '')")
-	flag.StringVar(&config.typeColumnName, "typeColumnName", "type", "The type column name (default: type)")
-  flag.StringVar(&config.trTvColumnName, "trTvColumnName", "trTv", "The trTv column name (default: trTv)")
+	flag.StringVar(&config.outJsonPath, "outJsonPath", "", "The output path for JSON output if you wish for it (default: '')")
+	flag.StringVar(&config.typeColumnName, "typeColumn", "type", "The type column name (default: type)")
+  flag.StringVar(&config.trTvColumnName, "trTvColumn", "trTv", "The trTv column name (default: trTv)")
 	flag.StringVar(&config.refColumnName, "refColumnName", "ref",
 		"The reference base column name. This is usually the name of the assembly (default: ref)")
 	flag.StringVar(&config.altColumnName, "altColumnName", "alt", "The alleles column name (default: alt)")
-	flag.StringVar(&config.homozygotesColumnName, "homozygotesColumnName", "homozygotes",
+	flag.StringVar(&config.homozygotesColumnName, "homozygotesColumn", "homozygotes",
 		"The homozygous sample column name (default: homozygotes)")
-	flag.StringVar(&config.heterozygotesColumnName, "heterozygotesColumnName", "heterozygotes",
+	flag.StringVar(&config.heterozygotesColumnName, "heterozygotesColumn", "heterozygotes",
 		"The homozygous sample column name (default: heterozygotes)")
-	flag.StringVar(&config.siteTypeColumnName, "siteTypeColumnName", "refSeq.siteType", "The site type column name (default: refSeq.siteType)")
-	flag.StringVar(&config.dbSNPnameColumnName, "dbSNPnameColumnName", "dbSNP.name", "Optional. The snp name column name (default: dbSNP.name)")
-	flag.StringVar(&config.exonicAlleleFunctionColumnName, "exonicAlleleFunctionColumnName",
+	flag.StringVar(&config.siteTypeColumnName, "siteTypeColumn", "refSeq.siteType", "The site type column name (default: refSeq.siteType)")
+	flag.StringVar(&config.dbSNPnameColumnName, "dbSnpNameColumn", "dbSNP.name", "Optional. The snp name column name (default: dbSNP.name)")
+	flag.StringVar(&config.exonicAlleleFunctionColumnName, "exonicAlleleFunctionColumn",
 		"refSeq.exonicAlleleFunction", `The name of the column that has nonSynonymous, synonymous, etc values (default: refSeq.exonicAlleleFunction)`)
 	flag.StringVar(&config.fieldSeparator, "fieldSeparator", "\t", "What is used to delimit fields (deault '\\t')")
 	flag.StringVar(&config.primaryDelimiter, "primaryDelimiter", ";",
@@ -193,7 +199,7 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
   }()
 
   // Now read them all off, concurrently.
-  for i := 0; i < 8; i++ {
+  for i := 0; i < config.maxThreads; i++ {
     go processLines(trTvIdx, typeIdx, refIdx, altIdx, hetIdx, homIdx, siteTypeIdx,
       dbSnpNameIdx, exonicAlleleFunctionIdx, config, workQueue, trResults, tvResults, complete)
   }
@@ -218,7 +224,6 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
   }()
 
   wg.Add(1)
-
   go func() {
     defer wg.Done()
 
@@ -238,7 +243,7 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
   }()
 
   // Wait for everyone to finish.
-  for i := 0; i < 8; i++ {
+  for i := 0; i < config.maxThreads; i++ {
     <-complete
   }
 
@@ -247,8 +252,237 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
 
   wg.Wait()
 
-  // spew.Dump(trOverallMap)
-  // spew.Dump(tvOverallMap)
+  // ratioMap := make(map[string]map[string]jsonFloat, 1000)
+
+  trSiteTypeMap := make(map[string]string, 200)
+  tvSiteTypeMap := make(map[string]string, 200)
+  ratioSiteTypeMap := make(map[string]string, 200)
+
+  samplesMap := make(map[string]map[string]jsonFloat, 1000)
+
+  for sampleID := range trOverallMap {
+    if samplesMap[sampleID] == nil{
+      samplesMap[sampleID] = make(map[string]jsonFloat, 100)
+      // ratioMap[sampleID] = make(map[string]jsonFloat, 100)
+    }
+
+    for siteType := range trOverallMap[sampleID] {
+      if trSiteTypeMap[siteType] == "" {
+        var trName bytes.Buffer
+        var tvName bytes.Buffer
+        var ratioName bytes.Buffer
+
+        trName.WriteString(siteType)
+        trName.WriteString(" ")
+        trName.WriteString(trKey)
+
+        trSiteTypeMap[siteType] = trName.String()
+
+        tvName.WriteString(siteType)
+        tvName.WriteString(" ")
+        tvName.WriteString(tvKey)
+
+        tvSiteTypeMap[siteType] = tvName.String()
+
+        ratioName.WriteString(siteType)
+        ratioName.WriteString(" ")
+        ratioName.WriteString(trTvRatioKey)
+
+        ratioSiteTypeMap[siteType] = ratioName.String()
+      }
+
+      samplesMap[sampleID][trSiteTypeMap[siteType]] = jsonFloat(trOverallMap[sampleID][siteType])
+      samplesMap[sampleID][tvSiteTypeMap[siteType]] = jsonFloat(tvOverallMap[sampleID][siteType])
+
+      // If denominator is 0, NaN will result, which we will store as config.emptyField
+      // https://github.com/raintank/metrictank/commit/5de7d6e3751901a23501e5fcd95f0b2d0604e8f4
+      samplesMap[sampleID][ratioSiteTypeMap[siteType]] = jsonFloat(trOverallMap[sampleID][siteType]) / jsonFloat(tvOverallMap[sampleID][siteType])
+    }
+  }
+
+  // // conduct QC
+  // trTvArray will hold all of the ratios for total trTv
+  trTvRatioArray := make([]float64, 0, 1000)
+
+  // total names
+  var totalTrName bytes.Buffer
+  var totalTvName bytes.Buffer
+  var totalRatioName bytes.Buffer
+
+  totalTrName.WriteString(totalKey)
+  totalTrName.WriteString(" ")
+  totalTrName.WriteString(trKey)
+
+  totalTvName.WriteString(totalKey)
+  totalTvName.WriteString(" ")
+  totalTvName.WriteString(tvKey)
+
+  totalRatioName.WriteString(totalKey)
+  totalRatioName.WriteString(" ")
+  totalRatioName.WriteString(trTvRatioKey)
+
+  var sampleNames []string
+
+  var totalSiteTypes []string
+  var siteTypes []string
+
+  uniqueSites := make(map[string]bool)
+  for sampleName, sampleHash := range samplesMap {
+    if sampleName != totalKey {
+      sampleNames = append(sampleNames, sampleName)
+      trTvRatioArray = append(trTvRatioArray, float64(samplesMap[sampleName][totalKey]))
+    }
+
+    // We don't do this for the "total" sampleName because the totalKey
+    // must contain only keys found in the sampleName
+    for siteType := range sampleHash {
+      if uniqueSites[siteType] {
+        continue
+      }
+
+      // To skip anything we've seen
+      uniqueSites[siteType] = true
+
+      // Handle totals differently, we want them at the end
+      if strings.Contains(siteType, totalKey) {
+        totalSiteTypes = append(totalSiteTypes, siteType)
+      } else {
+        siteTypes = append(siteTypes, siteType)
+      }
+    }
+  }
+
+  numSamples := float64(len(sampleNames))
+
+  // sampleNames =
+  sort.Strings(sampleNames)
+  // We skipped the totalKey above, so that we may put it first
+  sampleNames = append([]string{totalKey}, sampleNames...)
+
+  sort.Strings(totalSiteTypes)
+  sort.Strings(siteTypes)
+
+  siteTypes = append(siteTypes, totalSiteTypes...)
+
+  var trTvMean float64
+  var trTvMedian float64
+  var trTvSd float64
+
+  if len(trTvRatioArray) > 0 {
+    sort.Slice(trTvRatioArray, func(a, b int) bool {
+      return trTvRatioArray[a] < trTvRatioArray[b];
+    });
+
+    trTvMean = mean(trTvRatioArray)
+    trTvMedian = median(trTvRatioArray)
+
+    if trTvMean != 0.0 {
+      trTvSd = stdDev(trTvRatioArray, trTvMean)
+    }
+  }
+
+  // this one contains both counts and ratios, and is what we put into the return json
+  // sampleId|total : "siteType|total|exonAlleleFunc transitions|transversions|ratio" = Z
+  allMap := make(map[string]map[string]interface{}, 2)
+
+  //later we will have failedSamples
+  allMap["stats"] = map[string]interface{} {
+    trTvRatioMeanKey: jsonFloat(trTvMean),
+    trTvRatioMedianKey: jsonFloat(trTvMedian),
+    trTvRatioStdDevKey: jsonFloat(trTvSd),
+    "samples": numSamples,
+  }
+
+  allMap["results"] = map[string]interface{} {
+    "samples": samplesMap,
+  }
+
+  if config.outJsonPath != "" {
+    json, err := ffjson.Marshal(allMap)
+
+    if err != nil {
+      log.Fatal(err)
+    }
+
+    err = ioutil.WriteFile(config.outJsonPath, json, os.FileMode(0644))
+
+    if err != nil {
+      log.Fatal(err)
+    }
+  }
+
+  // Write Tab output
+  outFh := (*os.File)(nil)
+
+  if config.outTabPath != "" {
+    var err error
+    outFh, err = os.OpenFile(config.outTabPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+
+    if err != nil {
+      log.Fatal(err)
+    }
+  } else {
+    outFh = os.Stdout
+  }
+
+  defer outFh.Close()
+  writer := csv.NewWriter(outFh)
+
+  writer.Comma = rune(config.fieldSeparator[0])
+
+  // first column is for sample names
+  outLines := [][]string{append([]string{config.fieldSeparator}, siteTypes...)}
+
+  for _, sampleName := range sampleNames {
+    // First column is for the sample name
+
+    line := []string{sampleName}
+
+    for _, siteType := range siteTypes {
+      val := samplesMap[sampleName][siteType]
+
+      if float64(val) == float64(int64(val)) {
+        line = append(line, strconv.Itoa(int(val)))
+      } else {
+        line = append(line, strconv.FormatFloat(float64(val), 'f', 4, 64))
+      }
+    }
+
+    outLines = append(outLines, line)
+  }
+
+  writer.WriteAll(outLines)
+
+  // // Write output as a tabbed file
+  // outQcFh := (*os.File)(nil)
+  // defer outQcFh.Close()
+
+  // if config.outQcTabPath != "" {
+  //   var err error
+  //   outFh, err = os.OpenFile(config.outQcTabPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+
+  //   if err != nil {
+  //     log.Fatal(err)
+  //   }
+  // } else {
+  //   outQcFh = os.Stdout
+  // }
+
+  // writer = csv.NewWriter(outQcFh)
+
+  // writer.Comma = rune(config.fieldSeparator[0])
+
+  // outQcLines := [][]string{
+  //   []string{"Transition:Transversion Ratio Mean", strconv.FormatFloat(trTvMean, 'f', -1, 64)},
+  //   []string{"Transition:Transversion Ratio Median", strconv.FormatFloat(trTvMedian, 'f', -1, 64)},
+  //   []string{"Transition:Transversion Ratio Standard Deviation", strconv.FormatFloat(trTvSd, 'f', -1, 64)},
+  // }
+
+  // // outQcLines = append(outQcLines, []string{ "Transition:Transversion Ratio Mean", trTvMean})
+  // // outQcLines = append(outQcLines, "Transition:Transversion Ratio Median", trTvMedian)
+  // // outQcLines = append(outQcLines, "Transition:Transversion Ratio Median", trTvSd)
+
+  // writer.WriteAll(outQcLines)
 }
 
 func findFeatures (record []string, config *Config) (int, int, int, int, int, int, int, int, int) {
@@ -312,10 +546,10 @@ func processLines (trTvIdx int, typeIdx int, refIdx int, altIdx int, hetIdx int,
 	//Form: sampleId|total : siteType|total|exonAlleleFunc = Y
 	// ratioMap := make(map[string]map[string]jsonFloat, 1000)
 
-	trMap[totalKey] = make(map[string]int, 200)
-	tvMap[totalKey] = make(map[string]int, 200)
+	trMap[totalKey] = make(map[string]int, 20)
+	tvMap[totalKey] = make(map[string]int, 20)
 
-	featureCache := make(map[string]string, 200)
+	featureCache := make(map[string]string, 20)
 
 	siteTypes := make([]string, 0, 10)
   exonicTypes := make([]string, 0, 10)
@@ -368,7 +602,7 @@ func processLines (trTvIdx int, typeIdx int, refIdx int, altIdx int, hetIdx int,
     samplesSeen := make(map[string]bool)
 
     for _, sample := range strings.Split(record[hetIdx], config.primaryDelimiter) {
-      if samplesSeen[sample] == true {
+      if sample == config.emptyField || samplesSeen[sample] == true {
         continue
       }
 
@@ -395,7 +629,7 @@ func processLines (trTvIdx int, typeIdx int, refIdx int, altIdx int, hetIdx int,
     }
 
 		for _, sample := range strings.Split(record[homIdx], config.primaryDelimiter) {
-      if samplesSeen[sample] == true {
+      if sample == config.emptyField || samplesSeen[sample] == true {
         continue
       }
 
