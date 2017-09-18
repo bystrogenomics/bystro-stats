@@ -2,27 +2,27 @@
 package main
 
 import (
-	"bufio"
-	"bytes"
-	"encoding/csv"
-	"encoding/json"
-	"flag"
-	// "fmt"
-	"io"
-	"io/ioutil"
-	"log"
-	"math"
-	"os"
-	"sort"
-	"strconv"
-	"strings"
-	"github.com/akotlar/bystro-utils/parse"
+  "bufio"
+  "bytes"
+  "encoding/csv"
+  "encoding/json"
+  "flag"
+  "fmt"
+  "io"
+  "io/ioutil"
+  "log"
+  "math"
+  "os"
+  "sort"
+  "strconv"
+  "strings"
+  "github.com/akotlar/bystro-utils/parse"
   // "github.com/pquerna/ffjson/ffjson"
 
-	// "github.com/davecgh/go-spew/spew"
-	// "math/big"
+  // "github.com/davecgh/go-spew/spew"
+  // "math/big"
   "sync"
-	"runtime/pprof"
+  "runtime/pprof"
 )
 
 type jsonFloat float64
@@ -33,16 +33,16 @@ func (value jsonFloat) MarshalJSON() ([]byte, error) {
   }
 
   //inf will not work
-	if math.IsInf(float64(value), 1) {
-		return []byte("null"), nil
-	}
+  if math.IsInf(float64(value), 1) {
+    return []byte("null"), nil
+  }
 
   // Can't use "NA", get json: error calling MarshalJSON for type main.jsonFloat: invalid character 'N' looking for beginning of value
-	if math.IsNaN(float64(value)) {
-		return []byte("null"), nil
-	}
+  if math.IsNaN(float64(value)) {
+    return []byte("null"), nil
+  }
 
-	return []byte(strconv.FormatFloat(float64(value), 'f', 4, 64)), nil
+  return []byte(strconv.FormatFloat(float64(value), 'f', 4, 64)), nil
 }
 
 type Config struct {
@@ -77,32 +77,32 @@ const dbSnpKey string = "_in_dbSNP"
 // NOTE: For now this only supports \n end of line characters
 // If we want to support CLRF or whatever, use either csv package, or set a different delimiter
 func setup(args []string) *Config {
-	config := &Config{}
-	flag.StringVar(&config.inPath, "inPath", "", "The input file path (default: stdin)")
-	flag.StringVar(&config.outTabPath, "outTabPath", "", "The output path for tab-delimited file (default: stdout)")
-	flag.StringVar(&config.outQcTabPath, "outQcTabPath", "", "The output path for tab-delimited quality control file (default: stdout)")
-	flag.StringVar(&config.outJsonPath, "outJsonPath", "", "The output path for JSON output if you wish for it (default: '')")
-	flag.StringVar(&config.typeColumn, "typeColumn", "type", "The type column name (default: type)")
+  config := &Config{}
+  flag.StringVar(&config.inPath, "inPath", "", "The input file path (default: stdin)")
+  flag.StringVar(&config.outTabPath, "outTabPath", "", "The output path for tab-delimited file (default: stdout)")
+  flag.StringVar(&config.outQcTabPath, "outQcTabPath", "", "The output path for tab-delimited quality control file (default: stdout)")
+  flag.StringVar(&config.outJsonPath, "outJsonPath", "", "The output path for JSON output if you wish for it (default: '')")
+  flag.StringVar(&config.typeColumn, "typeColumn", "type", "The type column name (default: type)")
   flag.StringVar(&config.trTvColumn, "trTvColumn", "trTv", "The trTv column name (default: trTv)")
-	flag.StringVar(&config.refColumn, "refColumn", "ref",
-		"The reference base column name. This is usually the name of the assembly (default: ref)")
-	flag.StringVar(&config.altColumn, "altColumn", "alt", "The alleles column name (default: alt)")
-	flag.StringVar(&config.homozygotesColumn, "homozygotesColumn", "homozygotes",
-		"The homozygous sample column name (default: homozygotes)")
-	flag.StringVar(&config.heterozygotesColumn, "heterozygotesColumn", "heterozygotes",
-		"The homozygous sample column name (default: heterozygotes)")
-	flag.StringVar(&config.siteTypeColumn, "siteTypeColumn", "refSeq.siteType", "The site type column name (default: refSeq.siteType)")
-	flag.StringVar(&config.dbSNPnameColumn, "dbSnpNameColumn", "dbSNP.name", "Optional. The snp name column name (default: dbSNP.name)")
-	flag.StringVar(&config.exonicAlleleFunctionColumn, "exonicAlleleFunctionColumn",
-		"refSeq.exonicAlleleFunction", `The name of the column that has nonSynonymous, synonymous, etc values (default: refSeq.exonicAlleleFunction)`)
-	flag.StringVar(&config.fieldSeparator, "fieldSeparator", "\t", "What is used to delimit fields (deault '\\t')")
-	flag.StringVar(&config.primaryDelimiter, "primaryDelimiter", ";",
-		"The value delimiter (default ';')")
-	flag.StringVar(&config.emptyField, "emptyField", "!",
-		"What is used to denoted an empty field (default: '!')")
-	flag.StringVar(&config.cpuProfile, "cpuProfile", "", "write cpu profile to file")
+  flag.StringVar(&config.refColumn, "refColumn", "ref",
+    "The reference base column name. This is usually the name of the assembly (default: ref)")
+  flag.StringVar(&config.altColumn, "altColumn", "alt", "The alleles column name (default: alt)")
+  flag.StringVar(&config.homozygotesColumn, "homozygotesColumn", "homozygotes",
+    "The homozygous sample column name (default: homozygotes)")
+  flag.StringVar(&config.heterozygotesColumn, "heterozygotesColumn", "heterozygotes",
+    "The homozygous sample column name (default: heterozygotes)")
+  flag.StringVar(&config.siteTypeColumn, "siteTypeColumn", "refSeq.siteType", "The site type column name (default: refSeq.siteType)")
+  flag.StringVar(&config.dbSNPnameColumn, "dbSnpNameColumn", "dbSNP.name", "Optional. The snp name column name (default: dbSNP.name)")
+  flag.StringVar(&config.exonicAlleleFunctionColumn, "exonicAlleleFunctionColumn",
+    "refSeq.exonicAlleleFunction", `The name of the column that has nonSynonymous, synonymous, etc values (default: refSeq.exonicAlleleFunction)`)
+  flag.StringVar(&config.fieldSeparator, "fieldSeparator", "\t", "What is used to delimit fields (deault '\\t')")
+  flag.StringVar(&config.primaryDelimiter, "primaryDelimiter", ";",
+    "The value delimiter (default ';')")
+  flag.StringVar(&config.emptyField, "emptyField", "!",
+    "What is used to denoted an empty field (default: '!')")
+  flag.StringVar(&config.cpuProfile, "cpuProfile", "", "write cpu profile to file")
   flag.IntVar(&config.maxThreads, "maxThreads", 8, "Number of goroutines to use")
-	
+  
   // allows args to be mocked https://github.com/nwjlyons/email/blob/master/inputs.go
   // can only run 1 such test, else, redefined flags error
   a := os.Args[1:]
@@ -121,30 +121,30 @@ func init() {
 func main() {
   config := setup(nil)
 
-	if config.cpuProfile != "" {
-		f, err := os.Create(config.cpuProfile)
-		if err != nil {
-			log.Fatal(err)
-		}
-		pprof.StartCPUProfile(f)
-		defer pprof.StopCPUProfile()
-	}
+  if config.cpuProfile != "" {
+    f, err := os.Create(config.cpuProfile)
+    if err != nil {
+      log.Fatal(err)
+    }
+    pprof.StartCPUProfile(f)
+    defer pprof.StopCPUProfile()
+  }
 
-	inFh := (*os.File)(nil)
+  inFh := (*os.File)(nil)
 
-	if config.inPath != "" {
-		var err error
-		inFh, err = os.Open(config.inPath)
+  if config.inPath != "" {
+    var err error
+    inFh, err = os.Open(config.inPath)
 
-		if err != nil {
-			log.Fatal(err)
-		}
-	} else {
-		inFh = os.Stdin
-	}
+    if err != nil {
+      log.Fatal(err)
+    }
+  } else {
+    inFh = os.Stdin
+  }
 
-	// make sure it gets closed
-	defer inFh.Close()
+  // make sure it gets closed
+  defer inFh.Close()
 
   reader := bufio.NewReader(inFh)
 
@@ -327,7 +327,6 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
 
   numSamples := float64(len(sampleNames))
 
-  // sampleNames =
   sort.Strings(sampleNames)
   // We skipped the totalKey above, so that we may put it first
   sampleNames = append([]string{totalKey}, sampleNames...)
@@ -336,53 +335,7 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
 
   siteTypes = append(siteTypes, totalKey)
 
-  var trTvMean float64
-  var trTvMedian float64
-  var trTvSd float64
-
-  if len(trTvRatioArray) > 0 {
-    sort.Slice(trTvRatioArray, func(a, b int) bool {
-      return trTvRatioArray[a] < trTvRatioArray[b];
-    });
-
-    trTvMean = mean(trTvRatioArray)
-    trTvMedian = median(trTvRatioArray)
-
-    if trTvMean != 0 {
-      trTvSd = stdDev(trTvRatioArray, trTvMean)
-    }
-  }
-
-  // this one contains both counts and ratios, and is what we put into the return json
-  // sampleId|total : "siteType|total|exonAlleleFunc transitions|transversions|ratio" = Z
-  allMap := make(map[string]map[string]interface{}, 2)
-
-  //later we will have failedSamples
-  allMap["stats"] = map[string]interface{} {
-    trTvRatioMeanKey: jsonFloat(trTvMean),
-    trTvRatioMedianKey: jsonFloat(trTvMedian),
-    trTvRatioStdDevKey: jsonFloat(trTvSd),
-    "samples": numSamples,
-  }
-
-  allMap["results"] = map[string]interface{} {
-    "samples": samplesMap,
-  }
-
-  if config.outJsonPath != "" {
-    json, err := json.Marshal(allMap)
-
-    if err != nil {
-      log.Fatal(err)
-    }
-
-    err = ioutil.WriteFile(config.outJsonPath, json, os.FileMode(0644))
-
-    if err != nil {
-      log.Fatal(err)
-    }
-  }
-
+  /************************ Write Tab Delimited Output ***********************/
   // Write Tab output
   outFh := (*os.File)(nil)
 
@@ -398,18 +351,17 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
   }
 
   defer outFh.Close()
-  writer := csv.NewWriter(outFh)
 
+  writer := csv.NewWriter(outFh)
   writer.Comma = rune(config.fieldSeparator[0])
 
-  // first column is for sample names
-  line := []string{config.fieldSeparator}
+  var siteOrder []string
 
   for _, siteType := range siteTypes {
-    line = append(line, trSiteTypeMap[siteType], tvSiteTypeMap[siteType], ratioSiteTypeMap[siteType])
+    siteOrder = append(siteOrder, trSiteTypeMap[siteType], tvSiteTypeMap[siteType], ratioSiteTypeMap[siteType])
   }
 
-  outLines := [][]string{line}
+  outLines := [][]string{siteOrder}
 
   for _, sampleName := range sampleNames {
     // First column is for the sample name
@@ -427,7 +379,58 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
     outLines = append(outLines, line)
   }
 
+  fmt.Fprint(outFh, config.fieldSeparator)
   writer.WriteAll(outLines)
+
+  /*************************** Calculate Statistics **************************/
+  var trTvMean float64
+  var trTvMedian float64
+  var trTvSd float64
+
+  if len(trTvRatioArray) > 0 {
+    sort.Slice(trTvRatioArray, func(a, b int) bool {
+      return trTvRatioArray[a] < trTvRatioArray[b];
+    });
+
+    trTvMean = mean(trTvRatioArray)
+    trTvMedian = median(trTvRatioArray)
+
+    if trTvMean != 0 {
+      trTvSd = stdDev(trTvRatioArray, trTvMean)
+    }
+  }
+
+  /*************************** Write JSON **********************************/
+  if config.outJsonPath != "" {
+    // this one contains both counts and ratios, and is what we put into the return json
+    // sampleId|total : "siteType|total|exonAlleleFunc transitions|transversions|ratio" = Z
+    allMap := make(map[string]map[string]interface{}, 2)
+
+    //later we will have failedSamples
+    allMap["stats"] = map[string]interface{} {
+      trTvRatioMeanKey: jsonFloat(trTvMean),
+      trTvRatioMedianKey: jsonFloat(trTvMedian),
+      trTvRatioStdDevKey: jsonFloat(trTvSd),
+      "samples": numSamples,
+    }
+
+    allMap["results"] = map[string]interface{} {
+      "samples": samplesMap,
+      "order": siteOrder,
+    }
+
+    json, err := json.Marshal(allMap)
+
+    if err != nil {
+      log.Fatal(err)
+    }
+
+    err = ioutil.WriteFile(config.outJsonPath, json, os.FileMode(0644))
+
+    if err != nil {
+      log.Fatal(err)
+    }
+  }
 
   // // Write output as a tabbed file
   // outQcFh := (*os.File)(nil)
@@ -515,17 +518,17 @@ func processLines (trTvIdx int, typeIdx int, refIdx int, altIdx int, hetIdx int,
 siteTypeIdx int, dbSnpNameIdx int, exonicAlleleFunctionIdx int, config *Config,
 queue chan string, trResults chan map[string]map[string]int, tvResults chan map[string]map[string]int,
 complete chan bool) {
-	//Form: sampleId|total : siteType|total|exonAlleleFunc = N
-	trMap := make(map[string]map[string]int, 1000)
-	tvMap := make(map[string]map[string]int, 1000)
+  //Form: sampleId|total : siteType|total|exonAlleleFunc = N
+  trMap := make(map[string]map[string]int, 1000)
+  tvMap := make(map[string]map[string]int, 1000)
 
-	//Form: sampleId|total : siteType|total|exonAlleleFunc = Y
-	// ratioMap := make(map[string]map[string]jsonFloat, 1000)
+  //Form: sampleId|total : siteType|total|exonAlleleFunc = Y
+  // ratioMap := make(map[string]map[string]jsonFloat, 1000)
 
-	trMap[totalKey] = make(map[string]int, 20)
-	tvMap[totalKey] = make(map[string]int, 20)
+  trMap[totalKey] = make(map[string]int, 20)
+  tvMap[totalKey] = make(map[string]int, 20)
 
-	featureCache := make(map[string]string, 20)
+  featureCache := make(map[string]string, 20)
 
   var name bytes.Buffer
   name.WriteString(totalKey)
@@ -533,10 +536,10 @@ complete chan bool) {
 
   featureCache[totalKey] = name.String()
 
-	siteTypes := make([]string, 0, 10)
+  siteTypes := make([]string, 0, 10)
   exonicTypes := make([]string, 0, 10)
 
-	simpleTrTv := trTvIdx > -9
+  simpleTrTv := trTvIdx > -9
   hasDbSnpColumn := dbSnpNameIdx > -9
   hasExonicColumn := exonicAlleleFunctionIdx != -9
 
@@ -550,35 +553,35 @@ complete chan bool) {
   for line := range queue {
     record := strings.Split(line, config.fieldSeparator)
 
-		// Skip very short lines
-		if len(record) < 10 {
-			continue
-		}
+    // Skip very short lines
+    if len(record) < 10 {
+      continue
+    }
 
-		if record[typeIdx] != "SNP" {
-			continue
-		}
+    if record[typeIdx] != "SNP" {
+      continue
+    }
 
-		if !simpleTrTv {
-			trTv = parse.GetTrTv(record[refIdx], record[altIdx])
-		} else {
-			trTv = record[trTvIdx]
-		}
+    if !simpleTrTv {
+      trTv = parse.GetTrTv(record[refIdx], record[altIdx])
+    } else {
+      trTv = record[trTvIdx]
+    }
 
-		if trTv == parse.NotTrTv {
-			continue;
-		}
+    if trTv == parse.NotTrTv {
+      continue;
+    }
 
     isTr = trTv == parse.Tr
 
-		if hasDbSnpColumn {
-			inDbSnp = strings.Contains(record[dbSnpNameIdx], "rs")
-		}
+    if hasDbSnpColumn {
+      inDbSnp = strings.Contains(record[dbSnpNameIdx], "rs")
+    }
 
-		siteTypes = uniqSlice(record[siteTypeIdx], config.emptyField, config.primaryDelimiter)
+    siteTypes = uniqSlice(record[siteTypeIdx], config.emptyField, config.primaryDelimiter)
 
-		if hasExonicColumn {
-			exonicTypes = uniqSlice(record[exonicAlleleFunctionIdx], config.emptyField, config.primaryDelimiter)
+    if hasExonicColumn {
+      exonicTypes = uniqSlice(record[exonicAlleleFunctionIdx], config.emptyField, config.primaryDelimiter)
     }
 
     fillType(fakeTotal, siteTypes, exonicTypes,
@@ -589,7 +592,7 @@ complete chan bool) {
 
     fillType(strings.Split(record[homIdx], config.primaryDelimiter), siteTypes, exonicTypes,
       trMap, tvMap, featureCache, isTr, inDbSnp, config.emptyField)
-	}
+  }
 
   trResults <- trMap
   tvResults <- tvMap
@@ -676,53 +679,53 @@ featureCache map[string]string, isTr bool, inDbSnp bool, emptyField string) {
 
 // //https://github.com/dropbox/godropbox/blob/master/sort2/sort.go
 func mean(numbers []float64) (meanVal float64) {
-	return sum(numbers) / float64(len(numbers))
+  return sum(numbers) / float64(len(numbers))
 }
 
 func sum(numbers []float64) (total float64) {
-	for _, x := range numbers {
-		total += x
-	}
-	return total
+  for _, x := range numbers {
+    total += x
+  }
+  return total
 }
 
 func median(numbers []float64) float64 {
-	middle := len(numbers) / 2
-	result := numbers[middle]
-	if len(numbers)%2 == 0 {
-		result = (result + numbers[middle-1]) / 2
-	}
-	return result
+  middle := len(numbers) / 2
+  result := numbers[middle]
+  if len(numbers)%2 == 0 {
+    result = (result + numbers[middle-1]) / 2
+  }
+  return result
 }
 
 func mode(numbers []float64) (modes []float64) {
-	frequencies := make(map[float64]int, len(numbers))
-	highestFrequency := 0
-	for _, x := range numbers {
-		frequencies[x]++
-		if frequencies[x] > highestFrequency {
-			highestFrequency = frequencies[x]
-		}
-	}
-	for x, frequency := range frequencies {
-		if frequency == highestFrequency {
-			modes = append(modes, x)
-		}
-	}
-	if highestFrequency == 1 || len(modes) == len(numbers) {
-		modes = modes[:0] // Or: modes = []float64{}
-	}
-	sort.Float64s(modes)
-	return modes
+  frequencies := make(map[float64]int, len(numbers))
+  highestFrequency := 0
+  for _, x := range numbers {
+    frequencies[x]++
+    if frequencies[x] > highestFrequency {
+      highestFrequency = frequencies[x]
+    }
+  }
+  for x, frequency := range frequencies {
+    if frequency == highestFrequency {
+      modes = append(modes, x)
+    }
+  }
+  if highestFrequency == 1 || len(modes) == len(numbers) {
+    modes = modes[:0] // Or: modes = []float64{}
+  }
+  sort.Float64s(modes)
+  return modes
 }
 
 func stdDev(numbers []float64, mean float64) float64 {
-	total := 0.0
-	for _, number := range numbers {
-		total += math.Pow(number-mean, 2)
-	}
-	variance := total / float64(len(numbers)-1)
-	return math.Sqrt(variance)
+  total := 0.0
+  for _, number := range numbers {
+    total += math.Pow(number-mean, 2)
+  }
+  variance := total / float64(len(numbers)-1)
+  return math.Sqrt(variance)
 }
 
 func uniqSlice(record string, emptyField string, primaryDelimiter string) []string {
@@ -747,13 +750,13 @@ func uniqSlice(record string, emptyField string, primaryDelimiter string) []stri
 }
 
 func findIndex(record []string, field string) int {
-	for idx, val := range record {
-		if val == field {
-			return idx
-		}
-	}
+  for idx, val := range record {
+    if val == field {
+      return idx
+    }
+  }
 
-	return -9
+  return -9
 }
 
 func roundVal (val jsonFloat) string {
