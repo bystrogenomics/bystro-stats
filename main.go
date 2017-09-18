@@ -333,7 +333,7 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
 
   sort.Strings(siteTypes)
 
-  siteTypes = append(siteTypes, totalKey)
+  siteTypes = append([]string{totalKey}, siteTypes...)
 
   /************************ Write Tab Delimited Output ***********************/
   // Write Tab output
