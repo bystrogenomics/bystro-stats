@@ -252,8 +252,6 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
 
   wg.Wait()
 
-  // ratioMap := make(map[string]map[string]jsonFloat, 1000)
-
   trSiteTypeMap := make(map[string]string, 200)
   tvSiteTypeMap := make(map[string]string, 200)
   ratioSiteTypeMap := make(map[string]string, 200)
@@ -536,9 +534,9 @@ func findFeatures (record []string, config *Config) (int, int, int, int, int, in
 }
 
 func processLines (trTvIdx int, typeIdx int, refIdx int, altIdx int, hetIdx int, homIdx int,
-  siteTypeIdx int, dbSnpNameIdx int, exonicAlleleFunctionIdx int, config *Config,
-  queue chan string, trResults chan map[string]map[string]int, tvResults chan map[string]map[string]int,
-  complete chan bool) {
+siteTypeIdx int, dbSnpNameIdx int, exonicAlleleFunctionIdx int, config *Config,
+queue chan string, trResults chan map[string]map[string]int, tvResults chan map[string]map[string]int,
+complete chan bool) {
 	//Form: sampleId|total : siteType|total|exonAlleleFunc = N
 	trMap := make(map[string]map[string]int, 1000)
 	tvMap := make(map[string]map[string]int, 1000)
@@ -551,6 +549,12 @@ func processLines (trTvIdx int, typeIdx int, refIdx int, altIdx int, hetIdx int,
 
 	featureCache := make(map[string]string, 20)
 
+  var name bytes.Buffer
+  name.WriteString(totalKey)
+  name.WriteString(dbSnpKey)
+
+  featureCache[totalKey] = name.String()
+
 	siteTypes := make([]string, 0, 10)
   exonicTypes := make([]string, 0, 10)
 
@@ -558,7 +562,7 @@ func processLines (trTvIdx int, typeIdx int, refIdx int, altIdx int, hetIdx int,
   hasDbSnpColumn := dbSnpNameIdx > -9
   hasExonicColumn := exonicAlleleFunctionIdx != -9
 
-  isDbSnp := false
+  inDbSnp := false
   isTr := false
 
   var trTv string
@@ -588,7 +592,7 @@ func processLines (trTvIdx int, typeIdx int, refIdx int, altIdx int, hetIdx int,
     isTr = trTv == parse.Tr
 
 		if hasDbSnpColumn {
-			isDbSnp = strings.Contains(record[dbSnpNameIdx], "rs")
+			inDbSnp = strings.Contains(record[dbSnpNameIdx], "rs")
 		}
 
 		siteTypes = uniqSlice(record[siteTypeIdx], config.emptyField, config.primaryDelimiter)
@@ -597,61 +601,25 @@ func processLines (trTvIdx int, typeIdx int, refIdx int, altIdx int, hetIdx int,
 			exonicTypes = uniqSlice(record[exonicAlleleFunctionIdx], config.emptyField, config.primaryDelimiter)
     }
 
-    fillType(totalKey, totalKey, isTr, isDbSnp, trMap, tvMap, featureCache)
+    if isTr {
+      trMap[totalKey][totalKey]++
+    } else {
+      tvMap[totalKey][totalKey]++
+    }
 
-    samplesSeen := make(map[string]bool)
-
-    for _, sample := range strings.Split(record[hetIdx], config.primaryDelimiter) {
-      if sample == config.emptyField || samplesSeen[sample] == true {
-        continue
-      }
-
-      samplesSeen[sample] = true
-
-      if trMap[sample] == nil {
-        trMap[sample] = make(map[string]int)
-        tvMap[sample] = make(map[string]int)
-      }
-
-      fillType(sample, totalKey, isTr, isDbSnp, trMap, tvMap, featureCache)
-
-      if len(siteTypes) > 0 {
-        for _, siteType := range siteTypes {
-          fillType(sample, siteType, isTr, isDbSnp, trMap, tvMap, featureCache)
-        }
-      }
-
-      if len(exonicTypes) > 0 {
-        for _, siteType := range siteTypes {
-          fillType(sample, siteType, isTr, isDbSnp, trMap, tvMap, featureCache)
-        }
+    if inDbSnp {
+      if isTr {
+        trMap[totalKey][featureCache[totalKey]]++
+      } else {
+        tvMap[totalKey][featureCache[totalKey]]++
       }
     }
 
-		for _, sample := range strings.Split(record[homIdx], config.primaryDelimiter) {
-      if sample == config.emptyField || samplesSeen[sample] == true {
-        continue
-      }
+    fillType(strings.Split(record[hetIdx],config.primaryDelimiter), siteTypes, exonicTypes,
+      trMap, tvMap, featureCache, isTr, inDbSnp, config.emptyField)
 
-      samplesSeen[sample] = true
-
-      if trMap[sample] == nil {
-        trMap[sample] = make(map[string]int)
-        tvMap[sample] = make(map[string]int)
-      }
-
-      fillType(sample, totalKey, isTr, isDbSnp, trMap, tvMap, featureCache)
-
-      for _, siteType := range siteTypes {
-        fillType(sample, siteType, isTr, isDbSnp, trMap, tvMap, featureCache)
-      }
-
-      if hasExonicColumn {
-        for _, siteType := range siteTypes {
-          fillType(sample, siteType, isTr, isDbSnp, trMap, tvMap, featureCache)
-        }
-      }
-    }
+    fillType(strings.Split(record[homIdx], config.primaryDelimiter), siteTypes, exonicTypes,
+      trMap, tvMap, featureCache, isTr, inDbSnp, config.emptyField)
 	}
 
   trResults <- trMap
@@ -660,29 +628,79 @@ func processLines (trTvIdx int, typeIdx int, refIdx int, altIdx int, hetIdx int,
   complete <- true
 }
 
-func fillType(sample, siteType string, isTr bool, inDbSnp bool,
+func fillType(samples []string, siteTypes []string, exonicTypes []string,
 trMap map[string]map[string]int, tvMap map[string]map[string]int,
-featureCache map[string]string) {
-  if isTr {
-    trMap[sample][siteType]++
-  } else {
-    tvMap[sample][siteType]++
-  }
+featureCache map[string]string, isTr bool, inDbSnp bool, emptyField string) {
+  for _, sample := range samples {
+    if sample == emptyField {
+      continue
+    }
 
-  if inDbSnp {
-    if featureCache[siteType] == "" {
-      var name bytes.Buffer
-      // siteType_in_dbSNP
-      name.WriteString(siteType)
-      name.WriteString(dbSnpKey)
-
-      featureCache[siteType] = name.String()
+    if trMap[sample] == nil {
+      trMap[sample] = make(map[string]int)
+      tvMap[sample] = make(map[string]int)
     }
 
     if isTr {
-      trMap[sample][featureCache[siteType]]++
+      trMap[sample][totalKey]++
     } else {
-      tvMap[sample][featureCache[siteType]]++
+      tvMap[sample][totalKey]++
+    }
+
+    if inDbSnp {
+      if isTr {
+        trMap[sample][featureCache[totalKey]]++
+      } else {
+        tvMap[sample][featureCache[totalKey]]++
+      }
+    }
+
+    for _, siteType := range siteTypes {
+      if isTr {
+        trMap[sample][siteType]++
+      } else {
+        tvMap[sample][siteType]++
+      }
+
+      if featureCache[siteType] == "" {
+        var name bytes.Buffer
+        name.WriteString(siteType)
+        name.WriteString(dbSnpKey)
+
+        featureCache[siteType] = name.String()
+      }
+
+      if inDbSnp {
+        if isTr {
+          trMap[sample][featureCache[siteType]]++
+        } else {
+          tvMap[sample][featureCache[siteType]]++
+        }
+      }
+    }
+
+    for _, siteType := range exonicTypes {
+      if isTr {
+        trMap[sample][siteType]++
+      } else {
+        tvMap[sample][siteType]++
+      }
+
+      if featureCache[siteType] == "" {
+        var name bytes.Buffer
+        name.WriteString(siteType)
+        name.WriteString(dbSnpKey)
+
+        featureCache[siteType] = name.String()
+      }
+
+      if inDbSnp {
+        if isTr {
+          trMap[sample][featureCache[siteType]]++
+        } else {
+          tvMap[sample][featureCache[siteType]]++
+        }
+      }
     }
   }
 }
