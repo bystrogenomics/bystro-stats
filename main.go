@@ -5,7 +5,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/csv"
-	// "encoding/json"
+	"encoding/json"
 	"flag"
 	// "fmt"
 	"io"
@@ -17,7 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"github.com/akotlar/bystro-utils/parse"
-  "github.com/pquerna/ffjson/ffjson"
+  // "github.com/pquerna/ffjson/ffjson"
 
 	// "github.com/davecgh/go-spew/spew"
 	// "math/big"
@@ -50,15 +50,15 @@ type Config struct {
   outTabPath string
   outQcTabPath  string
   outJsonPath string
-  trTvColumnName string
-  refColumnName string
-  altColumnName string
-  typeColumnName string
-  homozygotesColumnName string
-  heterozygotesColumnName string
-  siteTypeColumnName string
-  dbSNPnameColumnName string
-  exonicAlleleFunctionColumnName string
+  trTvColumn string
+  refColumn string
+  altColumn string
+  typeColumn string
+  homozygotesColumn string
+  heterozygotesColumn string
+  siteTypeColumn string
+  dbSNPnameColumn string
+  exonicAlleleFunctionColumn string
   fieldSeparator string
   primaryDelimiter string
   emptyField string
@@ -82,18 +82,18 @@ func setup(args []string) *Config {
 	flag.StringVar(&config.outTabPath, "outTabPath", "", "The output path for tab-delimited file (default: stdout)")
 	flag.StringVar(&config.outQcTabPath, "outQcTabPath", "", "The output path for tab-delimited quality control file (default: stdout)")
 	flag.StringVar(&config.outJsonPath, "outJsonPath", "", "The output path for JSON output if you wish for it (default: '')")
-	flag.StringVar(&config.typeColumnName, "typeColumn", "type", "The type column name (default: type)")
-  flag.StringVar(&config.trTvColumnName, "trTvColumn", "trTv", "The trTv column name (default: trTv)")
-	flag.StringVar(&config.refColumnName, "refColumnName", "ref",
+	flag.StringVar(&config.typeColumn, "typeColumn", "type", "The type column name (default: type)")
+  flag.StringVar(&config.trTvColumn, "trTvColumn", "trTv", "The trTv column name (default: trTv)")
+	flag.StringVar(&config.refColumn, "refColumn", "ref",
 		"The reference base column name. This is usually the name of the assembly (default: ref)")
-	flag.StringVar(&config.altColumnName, "altColumnName", "alt", "The alleles column name (default: alt)")
-	flag.StringVar(&config.homozygotesColumnName, "homozygotesColumn", "homozygotes",
+	flag.StringVar(&config.altColumn, "altColumn", "alt", "The alleles column name (default: alt)")
+	flag.StringVar(&config.homozygotesColumn, "homozygotesColumn", "homozygotes",
 		"The homozygous sample column name (default: homozygotes)")
-	flag.StringVar(&config.heterozygotesColumnName, "heterozygotesColumn", "heterozygotes",
+	flag.StringVar(&config.heterozygotesColumn, "heterozygotesColumn", "heterozygotes",
 		"The homozygous sample column name (default: heterozygotes)")
-	flag.StringVar(&config.siteTypeColumnName, "siteTypeColumn", "refSeq.siteType", "The site type column name (default: refSeq.siteType)")
-	flag.StringVar(&config.dbSNPnameColumnName, "dbSnpNameColumn", "dbSNP.name", "Optional. The snp name column name (default: dbSNP.name)")
-	flag.StringVar(&config.exonicAlleleFunctionColumnName, "exonicAlleleFunctionColumn",
+	flag.StringVar(&config.siteTypeColumn, "siteTypeColumn", "refSeq.siteType", "The site type column name (default: refSeq.siteType)")
+	flag.StringVar(&config.dbSNPnameColumn, "dbSnpNameColumn", "dbSNP.name", "Optional. The snp name column name (default: dbSNP.name)")
+	flag.StringVar(&config.exonicAlleleFunctionColumn, "exonicAlleleFunctionColumn",
 		"refSeq.exonicAlleleFunction", `The name of the column that has nonSynonymous, synonymous, etc values (default: refSeq.exonicAlleleFunction)`)
 	flag.StringVar(&config.fieldSeparator, "fieldSeparator", "\t", "What is used to delimit fields (deault '\\t')")
 	flag.StringVar(&config.primaryDelimiter, "primaryDelimiter", ";",
@@ -398,7 +398,7 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
   }
 
   if config.outJsonPath != "" {
-    json, err := ffjson.Marshal(allMap)
+    json, err := json.Marshal(allMap)
 
     if err != nil {
       log.Fatal(err)
@@ -496,40 +496,40 @@ func findFeatures (record []string, config *Config) (int, int, int, int, int, in
   dbSnpNameIdx := -9
   exonicAlleleFunctionIdx := -9
 
-  if config.trTvColumnName != "" {
-    trTvIdx = findIndex(record, config.trTvColumnName)
+  if config.trTvColumn != "" {
+    trTvIdx = findIndex(record, config.trTvColumn)
   }
 
-  if config.typeColumnName != "" {
-    typeIdx = findIndex(record, config.typeColumnName)
+  if config.typeColumn != "" {
+    typeIdx = findIndex(record, config.typeColumn)
   }
 
-  if config.refColumnName != "" {
-    refIdx = findIndex(record, config.refColumnName)
+  if config.refColumn != "" {
+    refIdx = findIndex(record, config.refColumn)
   }
 
-  if config.altColumnName != "" {
-    altIdx = findIndex(record, config.altColumnName)
+  if config.altColumn != "" {
+    altIdx = findIndex(record, config.altColumn)
   }
 
-  if config.heterozygotesColumnName != "" {
-    hetIdx = findIndex(record, config.heterozygotesColumnName)
+  if config.heterozygotesColumn != "" {
+    hetIdx = findIndex(record, config.heterozygotesColumn)
   }
 
-  if config.homozygotesColumnName != "" {
-    homIdx = findIndex(record, config.homozygotesColumnName)
+  if config.homozygotesColumn != "" {
+    homIdx = findIndex(record, config.homozygotesColumn)
   }
 
-  if config.siteTypeColumnName != "" {
-    siteTypeIdx = findIndex(record, config.siteTypeColumnName)
+  if config.siteTypeColumn != "" {
+    siteTypeIdx = findIndex(record, config.siteTypeColumn)
   }
 
-  if config.dbSNPnameColumnName != "" {
-    dbSnpNameIdx = findIndex(record, config.dbSNPnameColumnName)
+  if config.dbSNPnameColumn != "" {
+    dbSnpNameIdx = findIndex(record, config.dbSNPnameColumn)
   }
 
-  if config.exonicAlleleFunctionColumnName != "" {
-    exonicAlleleFunctionIdx = findIndex(record, config.exonicAlleleFunctionColumnName)
+  if config.exonicAlleleFunctionColumn != "" {
+    exonicAlleleFunctionIdx = findIndex(record, config.exonicAlleleFunctionColumn)
   }
 
   return trTvIdx, typeIdx, refIdx, altIdx, hetIdx, homIdx, siteTypeIdx, dbSnpNameIdx, exonicAlleleFunctionIdx
