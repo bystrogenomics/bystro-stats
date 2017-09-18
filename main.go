@@ -319,7 +319,7 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
 
       samplesMap[sampleID][ratioSiteTypeMap[siteType]] = trTv
 
-      if siteType == totalKey {
+      if sampleID != totalKey && siteType == totalKey {
         trTvRatioArray = append(trTvRatioArray, float64(trTv))
       }
     }
@@ -348,7 +348,7 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
     trTvMean = mean(trTvRatioArray)
     trTvMedian = median(trTvRatioArray)
 
-    if trTvMean != 0.0 {
+    if trTvMean != 0 {
       trTvSd = stdDev(trTvRatioArray, trTvMean)
     }
   }
