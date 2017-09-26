@@ -123,9 +123,12 @@ func main() {
 
   if config.cpuProfile != "" {
     f, err := os.Create(config.cpuProfile)
+
     if err != nil {
-      log.Fatal(err)
+      log.Println("Couldn't create cpuProfile file")
+      return
     }
+
     pprof.StartCPUProfile(f)
     defer pprof.StopCPUProfile()
   }
@@ -137,7 +140,8 @@ func main() {
     inFh, err = os.Open(config.inPath)
 
     if err != nil {
-      log.Fatal(err)
+      log.Println("Couldn't read annotation file")
+      return
     }
   } else {
     inFh = os.Stdin
@@ -167,7 +171,8 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
   endOfLineByte, numChars, header, err := parse.FindEndOfLine(reader, "")
 
   if err != nil {
-    log.Fatal(err)
+    log.Println("Couldn't read annotation file")
+    return
   }
 
   headerFields := strings.Split(header[:len(header) - numChars], config.fieldSeparator)
@@ -175,6 +180,10 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
   trTvIdx, typeIdx, refIdx, altIdx, hetIdx, homIdx, siteTypeIdx, dbSnpNameIdx, exonicAlleleFunctionIdx := findFeatures(headerFields, config)
 
   // TODO check if any -9
+  if trTvIdx == -9 {
+    log.Println("trTv field is required")
+    return
+  }
 
   // Read the lines into the work queue.
   go func() {
@@ -539,7 +548,8 @@ complete chan bool) {
   siteTypes := make([]string, 0, 10)
   exonicTypes := make([]string, 0, 10)
 
-  simpleTrTv := trTvIdx > -9
+  // No more support for files that were created before trTv field
+  // simpleTrTv := trTvIdx > -9
   hasDbSnpColumn := dbSnpNameIdx > -9
   hasExonicColumn := exonicAlleleFunctionIdx != -9
 
@@ -548,7 +558,7 @@ complete chan bool) {
 
   fakeTotal := []string{totalKey}
 
-  var trTv string
+  // var trTv string
 
   for line := range queue {
     record := strings.Split(line, config.fieldSeparator)
@@ -558,21 +568,12 @@ complete chan bool) {
       continue
     }
 
-    if record[typeIdx] != "SNP" {
+    // Drop support for older file types that don't have trTvIdx
+    if record[trTvIdx] == parse.NotTrTv {
       continue
     }
 
-    if !simpleTrTv {
-      trTv = parse.GetTrTv(record[refIdx], record[altIdx])
-    } else {
-      trTv = record[trTvIdx]
-    }
-
-    if trTv == parse.NotTrTv {
-      continue;
-    }
-
-    isTr = trTv == parse.Tr
+    isTr = record[trTvIdx] == parse.Tr
 
     if hasDbSnpColumn {
       inDbSnp = strings.Contains(record[dbSnpNameIdx], "rs")
