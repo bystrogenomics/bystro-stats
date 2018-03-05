@@ -17,10 +17,8 @@ import (
   "strconv"
   "strings"
   "github.com/akotlar/bystro-utils/parse"
-  // "github.com/pquerna/ffjson/ffjson"
 
-  // "github.com/davecgh/go-spew/spew"
-  // "math/big"
+  // "github.com/kr/pretty"
   "sync"
   "runtime/pprof"
 )
@@ -59,6 +57,9 @@ type Config struct {
   siteTypeColumn string
   dbSNPnameColumn string
   exonicAlleleFunctionColumn string
+  silentSite string
+  replacementSite string
+  intergenicSite string
   fieldSeparator string
   primaryDelimiter string
   emptyField string
@@ -66,14 +67,32 @@ type Config struct {
   maxThreads int
 }
 
+type Indices struct {
+  trTv int
+  typeIdx int
+  ref int
+  alt int
+  het int
+  hom int
+  siteType int
+  dbSNPname int
+  exonicAlleleFunction int
+}
+
 const totalKey string = "total"
 const trKey string = "transitions"
 const tvKey string = "transversions"
 const trTvRatioKey string = "transitions:transversions ratio"
-const trTvRatioMeanKey string = "transitions:transversions ratio mean"
-const trTvRatioMedianKey string = "transitions:transversions ratio median"
-const trTvRatioStdDevKey = "transitions:transversions ratio standard deviation"
 const dbSnpKey string = "_in_dbSNP"
+const hetKey string = "heterozygotes"
+const homKey string = "homozygotes"
+const hetHomRatioKey string = "heterozygotes:homozygotes ratio"
+const silentKey string = "silent"
+const replacementKey string = "replacement"
+const silentRepRatioKey string = "silent:replacement ratio"
+const sitesKey string = "sites"
+const thetaKey string = "theta"
+
 // NOTE: For now this only supports \n end of line characters
 // If we want to support CLRF or whatever, use either csv package, or set a different delimiter
 func setup(args []string) *Config {
@@ -95,6 +114,12 @@ func setup(args []string) *Config {
   flag.StringVar(&config.dbSNPnameColumn, "dbSnpNameColumn", "dbSNP.name", "Optional. The snp name column name (default: dbSNP.name)")
   flag.StringVar(&config.exonicAlleleFunctionColumn, "exonicAlleleFunctionColumn",
     "refSeq.exonicAlleleFunction", `The name of the column that has nonSynonymous, synonymous, etc values (default: refSeq.exonicAlleleFunction)`)
+  flag.StringVar(&config.silentSite, "silentName",
+    "synonymous", `What do we call silent/synonymous sites`)
+  flag.StringVar(&config.replacementSite, "replacementName",
+    "nonSynonymous", `What do we call replacement/nonSynonymous sites`)
+  flag.StringVar(&config.intergenicSite, "intergenicName",
+    "intergenic", `What do call sites not in any transcript`)
   flag.StringVar(&config.fieldSeparator, "fieldSeparator", "\t", "What is used to delimit fields (deault '\\t')")
   flag.StringVar(&config.primaryDelimiter, "primaryDelimiter", ";",
     "The value delimiter (default ';')")
@@ -102,6 +127,7 @@ func setup(args []string) *Config {
     "What is used to denoted an empty field (default: '!')")
   flag.StringVar(&config.cpuProfile, "cpuProfile", "", "write cpu profile to file")
   flag.IntVar(&config.maxThreads, "maxThreads", 8, "Number of goroutines to use")
+
   
   // allows args to be mocked https://github.com/nwjlyons/email/blob/master/inputs.go
   // can only run 1 such test, else, redefined flags error
@@ -156,15 +182,18 @@ func main() {
 }
 
 func processAnnotation(config *Config, reader *bufio.Reader) {
-  // Read buffer
   workQueue := make(chan string, 100)
-  complete := make(chan bool)
-  // Write buffer
-  trResults := make(chan map[string]map[string]int, 100)
-  tvResults := make(chan map[string]map[string]int, 100)
 
-  trOverallMap := make(map[string]map[string]int)
-  tvOverallMap := make(map[string]map[string]int)
+  // Stores total results
+  complete := make(chan int)
+  // Stores ts & tv info from each thread
+  trTvChan := make(chan map[string]map[string][]int, 100)
+  hetHomChan := make(chan map[string][]int, 100)
+
+  // Accumulate results
+  trTvResults := make(map[string]map[string][]int)
+  hetHomResults := make(map[string][]int)
+  var totalVariants int
 
   var wg sync.WaitGroup
 
@@ -177,10 +206,10 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
 
   headerFields := strings.Split(header[:len(header) - numChars], config.fieldSeparator)
 
-  trTvIdx, typeIdx, refIdx, altIdx, hetIdx, homIdx, siteTypeIdx, dbSnpNameIdx, exonicAlleleFunctionIdx := findFeatures(headerFields, config)
+  indices := findFeatures(headerFields, config)
 
   // TODO check if any -9
-  if trTvIdx == -9 {
+  if indices.trTv == -9 {
     log.Println("trTv field is required")
     return
   }
@@ -209,23 +238,27 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
 
   // Now read them all off, concurrently.
   for i := 0; i < config.maxThreads; i++ {
-    go processLines(trTvIdx, typeIdx, refIdx, altIdx, hetIdx, homIdx, siteTypeIdx,
-      dbSnpNameIdx, exonicAlleleFunctionIdx, config, workQueue, trResults, tvResults, complete)
+    go processLines(indices, config, workQueue, trTvChan, hetHomChan, complete)
   }
 
   wg.Add(1)
   go func() {
     defer wg.Done()
 
-    for trMap := range trResults {
-      if trMap != nil {
-        for k, _ := range trMap {
-          if trOverallMap[k] == nil {
-            trOverallMap[k] = make(map[string]int)
+    for trTvMap := range trTvChan {
+      if trTvMap != nil {
+        for k, _ := range trTvMap {
+          if trTvResults[k] == nil {
+            trTvResults[k] = make(map[string][]int)
           }
 
-          for iK, iV := range trMap[k] {
-            trOverallMap[k][iK] += iV
+          for iK, iV := range trTvMap[k] {
+            if trTvResults[k][iK] == nil {
+              trTvResults[k][iK] = []int{0, 0}
+            }
+
+            trTvResults[k][iK][0] += iV[0]
+            trTvResults[k][iK][1] += iV[1]
           }
         }
       }
@@ -236,16 +269,15 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
   go func() {
     defer wg.Done()
 
-    for tvMap := range tvResults {
-      if tvMap != nil {
-        for k, _ := range tvMap {
-          if tvOverallMap[k] == nil {
-            tvOverallMap[k] = make(map[string]int)
+    for hhMap := range hetHomChan {
+      if hhMap != nil {
+        for k, v := range hhMap {
+          if hetHomResults[k] == nil {
+            hetHomResults[k] = []int{0, 0}
           }
 
-          for iK, iV := range tvMap[k] {
-            tvOverallMap[k][iK] += iV
-          }
+          hetHomResults[k][0] += v[0]
+          hetHomResults[k][1] += v[1]
         }
       }
     }
@@ -253,17 +285,17 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
 
   // Wait for everyone to finish.
   for i := 0; i < config.maxThreads; i++ {
-    <-complete
+    totalVariants += <-complete
   }
 
-  close(trResults)
-  close(tvResults)
+  close(trTvChan)
+  close(hetHomChan)
 
   wg.Wait()
 
-  trSiteTypeMap := make(map[string]string, 200)
-  tvSiteTypeMap := make(map[string]string, 200)
-  ratioSiteTypeMap := make(map[string]string, 200)
+  trNames := make(map[string]string, 50)
+  tvNames := make(map[string]string, 50)
+  ratioNames := make(map[string]string, 50)
 
   var sampleNames []string
   var siteTypes []string
@@ -271,13 +303,15 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
   samplesMap := make(map[string]map[string]jsonFloat, 1000)
   // // conduct QC
   // trTvArray will hold all of the ratios for total trTv
-  trTvRatioArray := make([]float64, 0, 1000)
+  trTvRatios := make([]float64, 0, 1000)
+  silentRepRatios := make([]float64, 0, 1000)
+  hetHomRatios := make([]float64, 0, 1000)
 
   var tr jsonFloat
   var tv jsonFloat
   var trTv jsonFloat
 
-  for sampleID := range trOverallMap {
+  for sampleID := range trTvResults {
     if samplesMap[sampleID] == nil{
       samplesMap[sampleID] = make(map[string]jsonFloat, 100)
       // ratioMap[sampleID] = make(map[string]jsonFloat, 100)
@@ -287,8 +321,11 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
       sampleNames = append(sampleNames, sampleID)
     }
 
-    for siteType := range trOverallMap[sampleID] {
-      if trSiteTypeMap[siteType] == "" {
+    var silent jsonFloat
+    var repl jsonFloat
+    var silentRepl jsonFloat
+    for siteType := range trTvResults[sampleID] {
+      if trNames[siteType] == "" {
         var trName bytes.Buffer
         var tvName bytes.Buffer
         var ratioName bytes.Buffer
@@ -297,41 +334,72 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
         trName.WriteString(" ")
         trName.WriteString(trKey)
 
-        trSiteTypeMap[siteType] = trName.String()
+        trNames[siteType] = trName.String()
 
         tvName.WriteString(siteType)
         tvName.WriteString(" ")
         tvName.WriteString(tvKey)
 
-        tvSiteTypeMap[siteType] = tvName.String()
+        tvNames[siteType] = tvName.String()
 
         ratioName.WriteString(siteType)
         ratioName.WriteString(" ")
         ratioName.WriteString(trTvRatioKey)
 
-        ratioSiteTypeMap[siteType] = ratioName.String()
+        ratioNames[siteType] = ratioName.String()
 
         if siteType != totalKey {
           siteTypes = append(siteTypes, siteType)
         }
       }
 
-      tr = jsonFloat(trOverallMap[sampleID][siteType])
-      tv = jsonFloat(tvOverallMap[sampleID][siteType])
+      tr = jsonFloat(trTvResults[sampleID][siteType][0])
+      tv = jsonFloat(trTvResults[sampleID][siteType][1])
 
-      samplesMap[sampleID][trSiteTypeMap[siteType]] = tr
-      samplesMap[sampleID][tvSiteTypeMap[siteType]] = tv
+      samplesMap[sampleID][trNames[siteType]] = tr
+      samplesMap[sampleID][tvNames[siteType]] = tv
 
       // If denominator is 0, NaN will result, which we will store as config.emptyField
       // https://github.com/raintank/metrictank/commit/5de7d6e3751901a23501e5fcd95f0b2d0604e8f4
-      trTv = jsonFloat(trOverallMap[sampleID][siteType]) / jsonFloat(tvOverallMap[sampleID][siteType])
+      trTv = tr / tv
 
-      samplesMap[sampleID][ratioSiteTypeMap[siteType]] = trTv
+      samplesMap[sampleID][ratioNames[siteType]] = trTv
 
       if sampleID != totalKey && siteType == totalKey {
-        trTvRatioArray = append(trTvRatioArray, float64(trTv))
+        trTvRatios = append(trTvRatios, float64(trTv))
       }
     }
+
+    silent = jsonFloat(trTvResults[sampleID][config.silentSite][0] + trTvResults[sampleID][config.silentSite][1])
+    repl = jsonFloat(trTvResults[sampleID][config.replacementSite][0] + trTvResults[sampleID][config.replacementSite][1])
+    silentRepl = silent / repl
+
+    samplesMap[sampleID][silentKey] = silent
+    samplesMap[sampleID][replacementKey] = repl
+    samplesMap[sampleID][silentRepRatioKey] = silentRepl
+
+    // Calculate the sample mean
+    if sampleID != totalKey {
+      silentRepRatios = append(silentRepRatios, float64(silentRepl))
+    }
+  }
+
+  for sampleID, val := range hetHomResults {
+    if samplesMap[sampleID] == nil{
+      samplesMap[sampleID] = make(map[string]jsonFloat, 100)
+      // ratioMap[sampleID] = make(map[string]jsonFloat, 100)
+    }
+
+    hets := float64(val[0])
+    homs := float64(val[1])
+    hetHom := hets / homs
+
+    samplesMap[sampleID][hetKey] = jsonFloat(hets)
+    samplesMap[sampleID][homKey] = jsonFloat(homs)
+
+    samplesMap[sampleID][hetHomRatioKey] = jsonFloat(hetHom)
+
+    hetHomRatios = append(hetHomRatios, hetHom)
   }
 
   numSamples := float64(len(sampleNames))
@@ -367,8 +435,11 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
   var siteOrder []string
 
   for _, siteType := range siteTypes {
-    siteOrder = append(siteOrder, trSiteTypeMap[siteType], tvSiteTypeMap[siteType], ratioSiteTypeMap[siteType])
+    siteOrder = append(siteOrder, trNames[siteType], tvNames[siteType], ratioNames[siteType])
   }
+
+  siteOrder = append(siteOrder, silentKey, replacementKey, silentRepRatioKey,
+    hetKey, homKey, hetHomRatioKey)
 
   outLines := [][]string{siteOrder}
 
@@ -378,12 +449,26 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
     line := []string{sampleName}
 
     for _, siteType := range siteTypes {
-      tr = samplesMap[sampleName][trSiteTypeMap[siteType]]
-      tv = samplesMap[sampleName][tvSiteTypeMap[siteType]]
-      trTv = samplesMap[sampleName][ratioSiteTypeMap[siteType]]
+      tr = samplesMap[sampleName][trNames[siteType]]
+      tv = samplesMap[sampleName][tvNames[siteType]]
+      trTv = samplesMap[sampleName][ratioNames[siteType]]
 
       line = append(line, roundVal(tr), roundVal(tv), roundVal(trTv))
     }
+
+    line = append(
+      line,
+      roundVal(samplesMap[sampleName][silentKey]),
+      roundVal(samplesMap[sampleName][replacementKey]),
+      roundVal(samplesMap[sampleName][silentRepRatioKey]),
+    )
+
+    line = append(
+      line,
+      roundVal(samplesMap[sampleName][hetKey]),
+      roundVal(samplesMap[sampleName][homKey]),
+      roundVal(samplesMap[sampleName][hetHomRatioKey]),
+    )
 
     outLines = append(outLines, line)
   }
@@ -391,36 +476,27 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
   fmt.Fprint(outFh, config.fieldSeparator)
   writer.WriteAll(outLines)
 
-  /*************************** Calculate Statistics **************************/
-  var trTvMean float64
-  var trTvMedian float64
-  var trTvSd float64
-
-  if len(trTvRatioArray) > 0 {
-    sort.Slice(trTvRatioArray, func(a, b int) bool {
-      return trTvRatioArray[a] < trTvRatioArray[b];
-    });
-
-    trTvMean = mean(trTvRatioArray)
-    trTvMedian = median(trTvRatioArray)
-
-    if trTvMean != 0 {
-      trTvSd = stdDev(trTvRatioArray, trTvMean)
-    }
-  }
-
-  /*************************** Write JSON **********************************/
+  /*************************** Calc Statistics && Write JSON **********************************/
   if config.outJsonPath != "" {
     // this one contains both counts and ratios, and is what we put into the return json
     // sampleId|total : "siteType|total|exonAlleleFunc transitions|transversions|ratio" = Z
     allMap := make(map[string]map[string]interface{}, 2)
 
-    //later we will have failedSamples
     allMap["stats"] = map[string]interface{} {
-      trTvRatioMeanKey: jsonFloat(trTvMean),
-      trTvRatioMedianKey: jsonFloat(trTvMedian),
-      trTvRatioStdDevKey: jsonFloat(trTvSd),
       "samples": numSamples,
+      "variants": totalVariants,
+    }
+
+    for key, val := range stats(trTvRatios, trTvRatioKey) {
+      allMap["stats"][key] = jsonFloat(val)
+    }
+
+    for key, val := range stats(silentRepRatios, silentRepRatioKey) {
+      allMap["stats"][key] = jsonFloat(val)
+    }
+
+    for key, val := range stats(hetHomRatios, hetHomRatioKey) {
+      allMap["stats"][key] = jsonFloat(val)
     }
 
     allMap["results"] = map[string]interface{} {
@@ -440,40 +516,9 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
       log.Fatal(err)
     }
   }
-
-  // // Write output as a tabbed file
-  // outQcFh := (*os.File)(nil)
-  // defer outQcFh.Close()
-
-  // if config.outQcTabPath != "" {
-  //   var err error
-  //   outFh, err = os.OpenFile(config.outQcTabPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
-
-  //   if err != nil {
-  //     log.Fatal(err)
-  //   }
-  // } else {
-  //   outQcFh = os.Stdout
-  // }
-
-  // writer = csv.NewWriter(outQcFh)
-
-  // writer.Comma = rune(config.fieldSeparator[0])
-
-  // outQcLines := [][]string{
-  //   []string{"Transition:Transversion Ratio Mean", strconv.FormatFloat(trTvMean, 'f', -1, 64)},
-  //   []string{"Transition:Transversion Ratio Median", strconv.FormatFloat(trTvMedian, 'f', -1, 64)},
-  //   []string{"Transition:Transversion Ratio Standard Deviation", strconv.FormatFloat(trTvSd, 'f', -1, 64)},
-  // }
-
-  // // outQcLines = append(outQcLines, []string{ "Transition:Transversion Ratio Mean", trTvMean})
-  // // outQcLines = append(outQcLines, "Transition:Transversion Ratio Median", trTvMedian)
-  // // outQcLines = append(outQcLines, "Transition:Transversion Ratio Median", trTvSd)
-
-  // writer.WriteAll(outQcLines)
 }
 
-func findFeatures (record []string, config *Config) (int, int, int, int, int, int, int, int, int) {
+func findFeatures (record []string, config *Config) (Indices) {
   trTvIdx := -9
   typeIdx := -9
   refIdx := -9
@@ -481,7 +526,7 @@ func findFeatures (record []string, config *Config) (int, int, int, int, int, in
   hetIdx := -9
   homIdx := -9
   siteTypeIdx := -9
-  dbSnpNameIdx := -9
+  dbSNPnameIdx := -9
   exonicAlleleFunctionIdx := -9
 
   if config.trTvColumn != "" {
@@ -513,30 +558,35 @@ func findFeatures (record []string, config *Config) (int, int, int, int, int, in
   }
 
   if config.dbSNPnameColumn != "" {
-    dbSnpNameIdx = findIndex(record, config.dbSNPnameColumn)
+    dbSNPnameIdx = findIndex(record, config.dbSNPnameColumn)
   }
 
   if config.exonicAlleleFunctionColumn != "" {
     exonicAlleleFunctionIdx = findIndex(record, config.exonicAlleleFunctionColumn)
   }
 
-  return trTvIdx, typeIdx, refIdx, altIdx, hetIdx, homIdx, siteTypeIdx, dbSnpNameIdx, exonicAlleleFunctionIdx
+  indices := Indices{
+    trTv: trTvIdx, typeIdx: typeIdx, ref: refIdx, alt: altIdx,
+    het: hetIdx, hom: homIdx, siteType: siteTypeIdx, dbSNPname: dbSNPnameIdx,
+    exonicAlleleFunction: exonicAlleleFunctionIdx,
+  }
+
+  return indices
 }
 
-func processLines (trTvIdx int, typeIdx int, refIdx int, altIdx int, hetIdx int, homIdx int,
-siteTypeIdx int, dbSnpNameIdx int, exonicAlleleFunctionIdx int, config *Config,
-queue chan string, trResults chan map[string]map[string]int, tvResults chan map[string]map[string]int,
-complete chan bool) {
+func processLines (indices Indices, config *Config,
+queue chan string, trTvChan chan map[string]map[string][]int,
+hetHomChan chan map[string][]int, complete chan int) {
   //Form: sampleId|total : siteType|total|exonAlleleFunc = N
-  trMap := make(map[string]map[string]int, 1000)
-  tvMap := make(map[string]map[string]int, 1000)
+  trTvMap := make(map[string]map[string][]int, 1000)
 
-  //Form: sampleId|total : siteType|total|exonAlleleFunc = Y
-  // ratioMap := make(map[string]map[string]jsonFloat, 1000)
+  hetHomMap := make(map[string][]int, 1000)
+  hetHomMap[totalKey] = []int{0, 0}
 
-  trMap[totalKey] = make(map[string]int, 20)
-  tvMap[totalKey] = make(map[string]int, 20)
+  hets := make([]string, 0, 1000)
+  homs := make([]string, 0, 100)
 
+  trTvMap[totalKey] = make(map[string][]int, 20)
   featureCache := make(map[string]string, 20)
 
   var name bytes.Buffer
@@ -550,16 +600,34 @@ complete chan bool) {
 
   // No more support for files that were created before trTv field
   // simpleTrTv := trTvIdx > -9
-  hasDbSnpColumn := dbSnpNameIdx > -9
-  hasExonicColumn := exonicAlleleFunctionIdx != -9
+  hasDbSnpColumn := indices.dbSNPname > -9
+  hasExonicColumn := indices.exonicAlleleFunction > -9
 
   inDbSnp := false
   isTr := false
 
+  trTvIdx := indices.trTv
+  hetIdx := indices.het
+  homIdx := indices.hom
+  funcIdx := indices.exonicAlleleFunction
+  dbSNPnameIdx := indices.dbSNPname
+  siteTypeIdx := indices.siteType
+
   fakeTotal := []string{totalKey}
 
-  // var trTv string
+  emptyField := config.emptyField
+  pDelim := config.primaryDelimiter
 
+  // var trTv string
+  var totalSites int
+  // var hetCount int
+  // var homCount int
+
+  empty := []string{}
+  intergenic := []string{config.intergenicSite}
+
+  var hasHet bool
+  var hasHom bool
   for line := range queue {
     record := strings.Split(line, config.fieldSeparator)
 
@@ -568,7 +636,39 @@ complete chan bool) {
       continue
     }
 
-    // Drop support for older file types that don't have trTvIdx
+    totalSites++
+
+    hasHet = record[hetIdx] != emptyField
+    hasHom = record[homIdx] != emptyField
+
+    if hasHet {
+      hets = strings.Split(record[hetIdx], pDelim)
+
+      for _, sample := range hets {
+        if hetHomMap[sample] == nil {
+          hetHomMap[sample] = []int{0, 0}
+        }
+
+        hetHomMap[sample][0]++
+        hetHomMap[totalKey][0]++
+      }
+    }
+
+    if hasHom {
+      homs = strings.Split(record[homIdx], pDelim)
+
+      for _, sample := range homs {
+        if hetHomMap[sample] == nil {
+          hetHomMap[sample] = []int{0, 0}
+        }
+
+        hetHomMap[sample][1]++
+        hetHomMap[totalKey][1]++
+      }
+    }
+
+    // If not transition or transversion we're in an indel
+    // which uses different delimiters, and which we're not as interested in
     if record[trTvIdx] == parse.NotTrTv {
       continue
     }
@@ -576,106 +676,135 @@ complete chan bool) {
     isTr = record[trTvIdx] == parse.Tr
 
     if hasDbSnpColumn {
-      inDbSnp = strings.Contains(record[dbSnpNameIdx], "rs")
+      inDbSnp = record[dbSNPnameIdx] != emptyField
     }
 
-    siteTypes = uniqSlice(record[siteTypeIdx], config.emptyField, config.primaryDelimiter)
+    // If siteType doesn't have the delimiter, it's a single site type
+    if !strings.Contains(record[siteTypeIdx], pDelim) {
+      // no site type if intergenic (b11.0.0 on)
+      if record[siteTypeIdx] == emptyField {
+        siteTypes = intergenic
+      } else {
+        siteTypes = []string{record[siteTypeIdx]}
+      }
+    } else {
+      siteTypes = uniqSlice(record[siteTypeIdx], emptyField, pDelim)
+    }
 
     if hasExonicColumn {
-      exonicTypes = uniqSlice(record[exonicAlleleFunctionIdx], config.emptyField, config.primaryDelimiter)
+      if !strings.Contains(record[funcIdx], pDelim) {
+        if record[funcIdx] == emptyField {
+          exonicTypes = empty
+        } else {
+          exonicTypes = []string{record[funcIdx]}
+        }
+      } else {
+        exonicTypes = uniqSlice(record[funcIdx], emptyField, pDelim)
+      }
     }
 
     fillType(fakeTotal, siteTypes, exonicTypes,
-      trMap, tvMap, featureCache, isTr, inDbSnp, config.emptyField)
+      trTvMap, featureCache, isTr, inDbSnp, emptyField)
 
-    fillType(strings.Split(record[hetIdx],config.primaryDelimiter), siteTypes, exonicTypes,
-      trMap, tvMap, featureCache, isTr, inDbSnp, config.emptyField)
+    if hasHet {
+      fillType(hets, siteTypes, exonicTypes, trTvMap, featureCache, isTr, inDbSnp, emptyField)
+    }
 
-    fillType(strings.Split(record[homIdx], config.primaryDelimiter), siteTypes, exonicTypes,
-      trMap, tvMap, featureCache, isTr, inDbSnp, config.emptyField)
+    if hasHom{
+      fillType(homs, siteTypes, exonicTypes, trTvMap, featureCache, isTr, inDbSnp, emptyField)
+    }
   }
 
-  trResults <- trMap
-  tvResults <- tvMap
+  trTvChan <- trTvMap
+  hetHomChan <- hetHomMap
 
-  complete <- true
+  complete <- totalSites
 }
 
 func fillType(samples []string, siteTypes []string, exonicTypes []string,
-trMap map[string]map[string]int, tvMap map[string]map[string]int,
-featureCache map[string]string, isTr bool, inDbSnp bool, emptyField string) {
+trTvMap map[string]map[string][]int, featureCache map[string]string,
+isTr bool, inDbSnp bool, emptyField string) {
   for _, sample := range samples {
-    if sample == emptyField {
-      continue
+    if trTvMap[sample] == nil {
+      trTvMap[sample] = make(map[string][]int)
+    }
+    
+    if trTvMap[sample][totalKey] == nil {
+      trTvMap[sample][totalKey] = []int{0,0}
+    }
+    
+    if isTr {
+      trTvMap[sample][totalKey][0]++
+    } else {
+      trTvMap[sample][totalKey][1]++
     }
 
-    if trMap[sample] == nil {
-      trMap[sample] = make(map[string]int)
-      tvMap[sample] = make(map[string]int)
+    fillInner(siteTypes, trTvMap[sample], featureCache, isTr, inDbSnp)
+    fillInner(exonicTypes, trTvMap[sample], featureCache, isTr, inDbSnp)
+  }
+}
+
+func fillInner(siteTypes []string, sMap map[string][]int, featureCache map[string]string,
+isTr bool, inDbSnp bool) {
+  for _, siteType := range siteTypes {
+    if sMap[siteType] == nil {
+      sMap[siteType] = []int{0,0}
     }
 
     if isTr {
-      trMap[sample][totalKey]++
+      sMap[siteType][0]++
     } else {
-      tvMap[sample][totalKey]++
+      sMap[siteType][1]++
     }
 
-    // if inDbSnp {
-    //   if isTr {
-    //     trMap[sample][featureCache[totalKey]]++
-    //   } else {
-    //     tvMap[sample][featureCache[totalKey]]++
-    //   }
-    // }
+    if featureCache[siteType] == "" {
+      var name bytes.Buffer
+      name.WriteString(siteType)
+      name.WriteString(dbSnpKey)
 
-    for _, siteType := range siteTypes {
-      if isTr {
-        trMap[sample][siteType]++
-      } else {
-        tvMap[sample][siteType]++
-      }
-
-      if featureCache[siteType] == "" {
-        var name bytes.Buffer
-        name.WriteString(siteType)
-        name.WriteString(dbSnpKey)
-
-        featureCache[siteType] = name.String()
-      }
-
-      if inDbSnp {
-        if isTr {
-          trMap[sample][featureCache[siteType]]++
-        } else {
-          tvMap[sample][featureCache[siteType]]++
-        }
-      }
+      featureCache[siteType] = name.String()
     }
 
-    for _, siteType := range exonicTypes {
+    if inDbSnp {
+      if sMap[featureCache[siteType]] == nil {
+        sMap[featureCache[siteType]] = []int{0,0}
+      }
+
       if isTr {
-        trMap[sample][siteType]++
+        sMap[featureCache[siteType]][0]++
       } else {
-        tvMap[sample][siteType]++
-      }
-
-      if featureCache[siteType] == "" {
-        var name bytes.Buffer
-        name.WriteString(siteType)
-        name.WriteString(dbSnpKey)
-
-        featureCache[siteType] = name.String()
-      }
-
-      if inDbSnp {
-        if isTr {
-          trMap[sample][featureCache[siteType]]++
-        } else {
-          tvMap[sample][featureCache[siteType]]++
-        }
+        sMap[featureCache[siteType]][1]++
       }
     }
   }
+}
+
+// Will mutate ratios by sorting, but who cares
+func stats(ratios []float64, baseKey string) (map[string]float64) {
+  meanKey := baseKey + " mean"
+  medKey := baseKey + " median"
+  sdKey := baseKey + " sd"
+
+  data := map[string]float64 {
+    meanKey: 0,
+    medKey: 0,
+    sdKey: 0,
+  }
+
+  if len(ratios) > 0 {
+    sort.Slice(ratios, func(a, b int) bool {
+      return ratios[a] < ratios[b];
+    });
+
+    data[meanKey] = mean(ratios)
+    data[medKey] = median(ratios)
+
+    if data[meanKey] != 0 {
+      data[sdKey] = stdDev(ratios, data[meanKey])
+    }
+  }
+
+  return data
 }
 
 // //https://github.com/dropbox/godropbox/blob/master/sort2/sort.go
