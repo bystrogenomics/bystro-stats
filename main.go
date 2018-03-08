@@ -446,6 +446,12 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
   allStats[hetHomRatioKey] = stats(silentRepRatios)
   allStats[hetHomRatioKey] = stats(hetHomRatios)
   allStats[thetaKey] = stats(thetaRatios)
+
+  //Get failing samples
+
+  badSamples := getBadSamples(samplesMap, allStats)
+
+  // log.Printf("%# v", pretty.Formatter(badSamples))
   /************************ Write Tab Delimited Output ***********************/
   // Write Tab output
   outFh := (*os.File)(nil)
@@ -479,7 +485,7 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
     siteOrder = append(siteOrder, trNames[siteType], tvNames[siteType], ratioNames[siteType])
   }
 
-  outLines := [][]string{siteOrder}
+  outLines := [][]string{append(siteOrder, "qc")}
 
   for _, sampleName := range sampleNames {
     line := []string{sampleName}
@@ -490,6 +496,12 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
       trTv = samplesMap[sampleName][ratioNames[siteType]]
 
       line = append(line, roundVal(samplesMap[sampleName][siteType]))
+    }
+
+    if badSamples[sampleName] != nil {
+      line = append(line, strings.Join(badSamples[sampleName], config.primaryDelimiter))
+    } else {
+      line = append(line, config.emptyField)
     }
 
     outLines = append(outLines, line)
@@ -508,6 +520,7 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
     allMap["stats"] = map[string]interface{} {
       "samples": numSamples,
       "variants": totalVariants,
+      "badSamples": len(badSamples),
     }
 
     jsonStatsMap := make(map[string]map[string]jsonFloat)
@@ -524,6 +537,7 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
 
     allMap["results"] = map[string]interface{} {
       "samples": samplesMap,
+      "qc": badSamples,
       "order": siteOrder,
     }
 
@@ -539,6 +553,31 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
       log.Fatal(err)
     }
   }
+}
+
+func getBadSamples (sampleStats map[string]map[string]jsonFloat, stats map[string]map[string]float64) map[string][]string {
+  badSamples := make(map[string][]string)
+
+  for siteType, siteStat := range stats {
+    mean := siteStat["mean"]
+    sd := siteStat["sd"]
+    min := mean - 3*sd
+    max := mean + 3*sd
+
+    for sampleName, sampleVals := range sampleStats {
+      val := float64(sampleVals[siteType])
+
+      if val < min || val > max {
+        if badSamples[sampleName] == nil {
+          badSamples[sampleName] = []string {siteType}
+        } else {
+          badSamples[sampleName] = append(badSamples[sampleName], siteType)
+        }
+      }
+    }
+  }
+
+  return badSamples
 }
 
 func findFeatures (record []string, config *Config) (Indices) {
