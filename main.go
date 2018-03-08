@@ -443,7 +443,7 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
   // Calculate statistics
   allStats := make(map[string]map[string]float64)
   allStats[trTvKey] = stats(trTvRatios)
-  allStats[hetHomRatioKey] = stats(silentRepRatios)
+  allStats[silentRepRatioKey] = stats(silentRepRatios)
   allStats[hetHomRatioKey] = stats(hetHomRatios)
   allStats[thetaKey] = stats(thetaRatios)
 
