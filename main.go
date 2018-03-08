@@ -82,16 +82,18 @@ type Indices struct {
 const totalKey string = "total"
 const trKey string = "transitions"
 const tvKey string = "transversions"
-const trTvRatioKey string = "transitions:transversions ratio"
+const trTvKey string = "transitions/transversions"
 const dbSnpKey string = "_in_dbSNP"
 const hetKey string = "heterozygotes"
 const homKey string = "homozygotes"
-const hetHomRatioKey string = "heterozygotes:homozygotes ratio"
+const hetHomRatioKey string = "heterozygotes/homozygotes"
 const silentKey string = "silent"
 const replacementKey string = "replacement"
-const silentRepRatioKey string = "silent:replacement ratio"
-const sitesKey string = "sites"
+const silentRepRatioKey string = "silent/replacement"
+const sitesKey string = "variants"
 const thetaKey string = "theta"
+const silentThetaKey string = "theta_silent"
+const totalSamplesKey string = "samples"
 
 // NOTE: For now this only supports \n end of line characters
 // If we want to support CLRF or whatever, use either csv package, or set a different delimiter
@@ -304,6 +306,7 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
   // // conduct QC
   // trTvArray will hold all of the ratios for total trTv
   trTvRatios := make([]float64, 0, 1000)
+  thetaRatios := make([]float64, 0, 1000)
   silentRepRatios := make([]float64, 0, 1000)
   hetHomRatios := make([]float64, 0, 1000)
 
@@ -320,69 +323,90 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
     if sampleID != totalKey {
       sampleNames = append(sampleNames, sampleID)
     }
+  }
 
+  // We assume diploids, +1 for the reference allele
+  totalThetaDenom := jsonFloat(geomTheta(len(sampleNames) * 2))
+
+  for sampleID, sampleVal := range trTvResults {
     var silent jsonFloat
     var repl jsonFloat
     var silentRepl jsonFloat
-    for siteType := range trTvResults[sampleID] {
+    for siteType := range sampleVal {
       if trNames[siteType] == "" {
-        var trName bytes.Buffer
-        var tvName bytes.Buffer
-        var ratioName bytes.Buffer
+        if siteType == totalKey {
+          trNames[siteType] = trKey
+          tvNames[siteType] = tvKey
+          ratioNames[siteType] = trTvKey
+        } else {
+          var trName bytes.Buffer
+          var tvName bytes.Buffer
+          var ratioName bytes.Buffer
 
-        trName.WriteString(siteType)
-        trName.WriteString(" ")
-        trName.WriteString(trKey)
+          trName.WriteString(siteType)
+          trName.WriteString(" ")
+          trName.WriteString(trKey)
 
-        trNames[siteType] = trName.String()
+          trNames[siteType] = trName.String()
 
-        tvName.WriteString(siteType)
-        tvName.WriteString(" ")
-        tvName.WriteString(tvKey)
+          tvName.WriteString(siteType)
+          tvName.WriteString(" ")
+          tvName.WriteString(tvKey)
 
-        tvNames[siteType] = tvName.String()
+          tvNames[siteType] = tvName.String()
 
-        ratioName.WriteString(siteType)
-        ratioName.WriteString(" ")
-        ratioName.WriteString(trTvRatioKey)
+          ratioName.WriteString(siteType)
+          ratioName.WriteString(" ")
+          ratioName.WriteString(trTvKey)
 
-        ratioNames[siteType] = ratioName.String()
+          ratioNames[siteType] = ratioName.String()
 
-        if siteType != totalKey {
           siteTypes = append(siteTypes, siteType)
         }
       }
 
-      tr = jsonFloat(trTvResults[sampleID][siteType][0])
-      tv = jsonFloat(trTvResults[sampleID][siteType][1])
+      tr = jsonFloat(sampleVal[siteType][0])
+      tv = jsonFloat(sampleVal[siteType][1])
+      trTv = tr / tv
 
       samplesMap[sampleID][trNames[siteType]] = tr
       samplesMap[sampleID][tvNames[siteType]] = tv
-
-      // If denominator is 0, NaN will result, which we will store as config.emptyField
-      // https://github.com/raintank/metrictank/commit/5de7d6e3751901a23501e5fcd95f0b2d0604e8f4
-      trTv = tr / tv
-
       samplesMap[sampleID][ratioNames[siteType]] = trTv
 
-      if sampleID != totalKey && siteType == totalKey {
+      // Calculate Theta. We only calculate theta for SNPs, since even
+      // non-silent theta is questionable; odd segregating sites maybe moreso
+      if siteType == totalKey && sampleID != totalKey{
+        // 1.5 comes from (1/1 + 1/2) aka sum from 1 .. n-1{ 1/n }
+        // aka the number of allele 
+        samplesMap[sampleID][thetaKey] = (tr + tv) / 1.5
+
         trTvRatios = append(trTvRatios, float64(trTv))
+        thetaRatios = append(thetaRatios, float64(samplesMap[sampleID][thetaKey]))
       }
     }
 
-    silent = jsonFloat(trTvResults[sampleID][config.silentSite][0] + trTvResults[sampleID][config.silentSite][1])
-    repl = jsonFloat(trTvResults[sampleID][config.replacementSite][0] + trTvResults[sampleID][config.replacementSite][1])
-    silentRepl = silent / repl
+    // Silent stuff
+    if sampleVal[config.silentSite] != nil {
+      silent = jsonFloat(sampleVal[config.silentSite][0] + sampleVal[config.silentSite][1])
+      repl = jsonFloat(sampleVal[config.replacementSite][0] + sampleVal[config.replacementSite][1])
+      silentRepl = silent / repl
 
-    samplesMap[sampleID][silentKey] = silent
-    samplesMap[sampleID][replacementKey] = repl
-    samplesMap[sampleID][silentRepRatioKey] = silentRepl
+      samplesMap[sampleID][silentKey] = silent
+      samplesMap[sampleID][replacementKey] = repl
+      samplesMap[sampleID][silentRepRatioKey] = silentRepl
 
-    // Calculate the sample mean
-    if sampleID != totalKey {
-      silentRepRatios = append(silentRepRatios, float64(silentRepl))
+      if sampleID != totalKey {
+        silentRepRatios = append(silentRepRatios, float64(silentRepl))
+        
+        // neutrality likely only at silent sites
+        samplesMap[sampleID][silentThetaKey] = silent / jsonFloat(1.5)
+      }
     }
   }
+
+  samplesMap[totalKey][thetaKey] = jsonFloat(totalVariants) / totalThetaDenom
+  samplesMap[totalKey][silentThetaKey] = jsonFloat(samplesMap[totalKey][silentKey]) / jsonFloat(totalThetaDenom)
+  samplesMap[totalKey][sitesKey] = jsonFloat(totalVariants)
 
   for sampleID, val := range hetHomResults {
     if samplesMap[sampleID] == nil{
@@ -390,19 +414,21 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
       // ratioMap[sampleID] = make(map[string]jsonFloat, 100)
     }
 
-    hets := float64(val[0])
-    homs := float64(val[1])
+    hets := jsonFloat(val[0])
+    homs := jsonFloat(val[1])
     hetHom := hets / homs
 
-    samplesMap[sampleID][hetKey] = jsonFloat(hets)
-    samplesMap[sampleID][homKey] = jsonFloat(homs)
+    samplesMap[sampleID][hetKey] = hets
+    samplesMap[sampleID][homKey] = homs
 
-    samplesMap[sampleID][hetHomRatioKey] = jsonFloat(hetHom)
+    samplesMap[sampleID][hetHomRatioKey] = hetHom
 
-    hetHomRatios = append(hetHomRatios, hetHom)
+    // This is all sites, not just SNPs
+    if sampleID != totalKey {
+      samplesMap[sampleID][sitesKey] = hets + homs
+      hetHomRatios = append(hetHomRatios, float64(hetHom))
+    }
   }
-
-  numSamples := float64(len(sampleNames))
 
   sort.Strings(sampleNames)
   // We skipped the totalKey above, so that we may put it first
@@ -412,13 +438,21 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
 
   siteTypes = append([]string{totalKey}, siteTypes...)
 
+  numSamples := float64(len(sampleNames))
+
+  // Calculate statistics
+  allStats := make(map[string]map[string]float64)
+  allStats[trTvKey] = stats(trTvRatios)
+  allStats[trTvKey] = stats(silentRepRatios)
+  allStats[silentRepRatioKey] = stats(hetHomRatios)
+  allStats[hetHomRatioKey] = stats(thetaRatios)
   /************************ Write Tab Delimited Output ***********************/
   // Write Tab output
   outFh := (*os.File)(nil)
 
   if config.outTabPath != "" {
     var err error
-    outFh, err = os.OpenFile(config.outTabPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+    outFh, err = os.OpenFile(config.outTabPath, os.O_CREATE|os.O_WRONLY, 0600)
 
     if err != nil {
       log.Fatal(err)
@@ -432,21 +466,34 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
   writer := csv.NewWriter(outFh)
   writer.Comma = rune(config.fieldSeparator[0])
 
-  var siteOrder []string
+  headerStats := makeHeaderStats(allStats)
+
+  writer.WriteAll(headerStats)
+
+  siteOrder := []string {
+    sitesKey, thetaKey, silentKey, replacementKey, silentRepRatioKey,
+    hetKey, homKey, hetHomRatioKey,
+  }
 
   for _, siteType := range siteTypes {
     siteOrder = append(siteOrder, trNames[siteType], tvNames[siteType], ratioNames[siteType])
   }
-
-  siteOrder = append(siteOrder, silentKey, replacementKey, silentRepRatioKey,
-    hetKey, homKey, hetHomRatioKey)
 
   outLines := [][]string{siteOrder}
 
   for _, sampleName := range sampleNames {
     // First column is for the sample name
 
-    line := []string{sampleName}
+    line := []string{sampleName,
+      roundVal(samplesMap[sampleName][sitesKey]),
+      roundVal(samplesMap[sampleName][thetaKey]),
+      roundVal(samplesMap[sampleName][silentKey]),
+      roundVal(samplesMap[sampleName][replacementKey]),
+      roundVal(samplesMap[sampleName][silentRepRatioKey]),
+      roundVal(samplesMap[sampleName][hetKey]),
+      roundVal(samplesMap[sampleName][homKey]),
+      roundVal(samplesMap[sampleName][hetHomRatioKey]),
+    }
 
     for _, siteType := range siteTypes {
       tr = samplesMap[sampleName][trNames[siteType]]
@@ -456,25 +503,12 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
       line = append(line, roundVal(tr), roundVal(tv), roundVal(trTv))
     }
 
-    line = append(
-      line,
-      roundVal(samplesMap[sampleName][silentKey]),
-      roundVal(samplesMap[sampleName][replacementKey]),
-      roundVal(samplesMap[sampleName][silentRepRatioKey]),
-    )
-
-    line = append(
-      line,
-      roundVal(samplesMap[sampleName][hetKey]),
-      roundVal(samplesMap[sampleName][homKey]),
-      roundVal(samplesMap[sampleName][hetHomRatioKey]),
-    )
-
     outLines = append(outLines, line)
   }
 
   fmt.Fprint(outFh, config.fieldSeparator)
   writer.WriteAll(outLines)
+
 
   /*************************** Calc Statistics && Write JSON **********************************/
   if config.outJsonPath != "" {
@@ -487,16 +521,16 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
       "variants": totalVariants,
     }
 
-    for key, val := range stats(trTvRatios, trTvRatioKey) {
-      allMap["stats"][key] = jsonFloat(val)
+    jsonStatsMap := make(map[string]map[string]jsonFloat)
+    for key, val := range allStats {
+      jsonStatsMap[key] = make(map[string]jsonFloat)
+      for statName, statVal := range val {
+        jsonStatsMap[key][statName] = jsonFloat(statVal)
+      }
     }
 
-    for key, val := range stats(silentRepRatios, silentRepRatioKey) {
-      allMap["stats"][key] = jsonFloat(val)
-    }
-
-    for key, val := range stats(hetHomRatios, hetHomRatioKey) {
-      allMap["stats"][key] = jsonFloat(val)
+    for key, val := range jsonStatsMap {
+      allMap["stats"][key] = val
     }
 
     allMap["results"] = map[string]interface{} {
@@ -510,7 +544,7 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
       log.Fatal(err)
     }
 
-    err = ioutil.WriteFile(config.outJsonPath, json, os.FileMode(0644))
+    err = ioutil.WriteFile(config.outJsonPath, json, os.FileMode(0600))
 
     if err != nil {
       log.Fatal(err)
@@ -779,13 +813,39 @@ isTr bool, inDbSnp bool) {
   }
 }
 
-// Will mutate ratios by sorting, but who cares
-func stats(ratios []float64, baseKey string) (map[string]float64) {
-  meanKey := baseKey + " mean"
-  medKey := baseKey + " median"
-  sdKey := baseKey + " sd"
+func makeHeaderStats(stats ...map[string]map[string]float64) [][]string {
+  var lines [][]string
+  for _, statObj := range stats {
+    
+    for category, statVals := range statObj {
+      for statName, val := range statVals {
+        var line []string
+        line = append(line, "#" + category + " " + statName + ":" + strconv.FormatFloat(val, 'g', 3, 64))
+        lines = append(lines, line)
+      } 
+    }
+  }
 
-  data := map[string]float64 {
+  return lines
+}
+
+func geomTheta(samples int) (float64) {
+  var sum float64
+
+  for i := 1; i < samples; i++ {
+    sum += 1/float64(i)
+  }
+
+  return sum
+}
+
+// Will mutate ratios by sorting, but who cares
+func stats(ratios []float64) map[string]float64 {
+  meanKey := "mean"
+  medKey := "median"
+  sdKey := "sd"
+
+  baseData := map[string]float64 {
     meanKey: 0,
     medKey: 0,
     sdKey: 0,
@@ -796,15 +856,15 @@ func stats(ratios []float64, baseKey string) (map[string]float64) {
       return ratios[a] < ratios[b];
     });
 
-    data[meanKey] = mean(ratios)
-    data[medKey] = median(ratios)
+    baseData[meanKey] = mean(ratios)
+    baseData[medKey] = median(ratios)
 
-    if data[meanKey] != 0 {
-      data[sdKey] = stdDev(ratios, data[meanKey])
+    if baseData[meanKey] != 0 {
+      baseData[sdKey] = stdDev(ratios, baseData[meanKey])
     }
   }
 
-  return data
+  return baseData
 }
 
 // //https://github.com/dropbox/godropbox/blob/master/sort2/sort.go
