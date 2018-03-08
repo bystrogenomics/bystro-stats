@@ -443,9 +443,9 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
   // Calculate statistics
   allStats := make(map[string]map[string]float64)
   allStats[trTvKey] = stats(trTvRatios)
-  allStats[trTvKey] = stats(silentRepRatios)
-  allStats[silentRepRatioKey] = stats(hetHomRatios)
-  allStats[hetHomRatioKey] = stats(thetaRatios)
+  allStats[hetHomRatioKey] = stats(silentRepRatios)
+  allStats[hetHomRatioKey] = stats(hetHomRatios)
+  allStats[thetaKey] = stats(thetaRatios)
   /************************ Write Tab Delimited Output ***********************/
   // Write Tab output
   outFh := (*os.File)(nil)
@@ -471,7 +471,7 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
   writer.WriteAll(headerStats)
 
   siteOrder := []string {
-    sitesKey, thetaKey, silentKey, replacementKey, silentRepRatioKey,
+    sitesKey, thetaKey, silentThetaKey, silentKey, replacementKey, silentRepRatioKey,
     hetKey, homKey, hetHomRatioKey,
   }
 
@@ -482,25 +482,14 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
   outLines := [][]string{siteOrder}
 
   for _, sampleName := range sampleNames {
-    // First column is for the sample name
+    line := []string{sampleName}
 
-    line := []string{sampleName,
-      roundVal(samplesMap[sampleName][sitesKey]),
-      roundVal(samplesMap[sampleName][thetaKey]),
-      roundVal(samplesMap[sampleName][silentKey]),
-      roundVal(samplesMap[sampleName][replacementKey]),
-      roundVal(samplesMap[sampleName][silentRepRatioKey]),
-      roundVal(samplesMap[sampleName][hetKey]),
-      roundVal(samplesMap[sampleName][homKey]),
-      roundVal(samplesMap[sampleName][hetHomRatioKey]),
-    }
-
-    for _, siteType := range siteTypes {
+    for _, siteType := range siteOrder {
       tr = samplesMap[sampleName][trNames[siteType]]
       tv = samplesMap[sampleName][tvNames[siteType]]
       trTv = samplesMap[sampleName][ratioNames[siteType]]
 
-      line = append(line, roundVal(tr), roundVal(tv), roundVal(trTv))
+      line = append(line, roundVal(samplesMap[sampleName][siteType]))
     }
 
     outLines = append(outLines, line)
@@ -817,10 +806,25 @@ func makeHeaderStats(stats ...map[string]map[string]float64) [][]string {
   var lines [][]string
   for _, statObj := range stats {
     
-    for category, statVals := range statObj {
-      for statName, val := range statVals {
+    var cats []string
+    for category, _ := range statObj {
+      cats = append(cats, category)
+    }
+
+    sort.Strings(cats)
+
+    for _, cat := range cats {
+      var statNames []string
+
+      for statName, _ := range statObj[cat] {
+        statNames = append(statNames, statName)
+      }
+
+      sort.Strings(statNames)
+
+      for _, name := range statNames {
         var line []string
-        line = append(line, "#" + category + " " + statName + ":" + strconv.FormatFloat(val, 'g', 3, 64))
+        line = append(line, "#" + cat + " " + name + ":" + strconv.FormatFloat(statObj[cat][name], 'g', 3, 64))
         lines = append(lines, line)
       } 
     }
