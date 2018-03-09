@@ -100,9 +100,9 @@ const totalSamplesKey string = "samples"
 func setup(args []string) *Config {
   config := &Config{}
   flag.StringVar(&config.inPath, "inPath", "", "The input file path (default: stdin)")
-  flag.StringVar(&config.outTabPath, "outTabPath", "", "The output path for tab-delimited file (default: stdout)")
-  flag.StringVar(&config.outQcTabPath, "outQcTabPath", "", "The output path for tab-delimited quality control file (default: stdout)")
-  flag.StringVar(&config.outJsonPath, "outJsonPath", "", "The output path for JSON output if you wish for it (default: '')")
+  flag.StringVar(&config.outTabPath, "outTabPath", "bystro-stats.tsv", "The output path for tab-delimited file (default: stdout)")
+  flag.StringVar(&config.outQcTabPath, "outQcTabPath", "bystro-stats.qc.tsv", "The output path for tab-delimited quality control file (default: stdout)")
+  flag.StringVar(&config.outJsonPath, "outJsonPath", "bystro-stats.json", "The output path for JSON output if you wish for it (default: '')")
   flag.StringVar(&config.typeColumn, "typeColumn", "type", "The type column name (default: type)")
   flag.StringVar(&config.trTvColumn, "trTvColumn", "trTv", "The trTv column name (default: trTv)")
   flag.StringVar(&config.refColumn, "refColumn", "ref",
@@ -507,10 +507,23 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
     outLines = append(outLines, line)
   }
 
+  //Indent one cell
   fmt.Fprint(outFh, config.fieldSeparator)
   writer.WriteAll(outLines)
 
+  /*************************** Write bad samples to file **************************************/
+  if config.outQcTabPath != "" {
+    outQcFh, err := os.OpenFile(config.outQcTabPath, os.O_CREATE|os.O_WRONLY, 0600)
 
+    if err != nil {
+      log.Fatal(err)
+    }
+
+    for sampleName, _ := range badSamples {
+      fmt.Fprintln(outQcFh, sampleName)
+    }
+  }
+  
   /*************************** Calc Statistics && Write JSON **********************************/
   if config.outJsonPath != "" {
     // this one contains both counts and ratios, and is what we put into the return json
@@ -520,7 +533,7 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
     allMap["stats"] = map[string]interface{} {
       "samples": numSamples,
       "variants": totalVariants,
-      "badSamples": len(badSamples),
+      "badSamplesCount": len(badSamples),
     }
 
     jsonStatsMap := make(map[string]map[string]jsonFloat)
