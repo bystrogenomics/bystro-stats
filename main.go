@@ -578,6 +578,10 @@ func getBadSamples (sampleStats map[string]map[string]jsonFloat, stats map[strin
     max := mean + 3*sd
 
     for sampleName, sampleVals := range sampleStats {
+      if sampleName == totalKey {
+        continue
+      }
+
       val := float64(sampleVals[siteType])
 
       if val < min || val > max {
