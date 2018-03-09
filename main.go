@@ -58,6 +58,7 @@ type Config struct {
   dbSNPnameColumn string
   exonicAlleleFunctionColumn string
   silentSite string
+  exonicSite string
   replacementSite string
   intergenicSite string
   fieldSeparator string
@@ -92,7 +93,7 @@ const replacementKey string = "replacement"
 const silentRepRatioKey string = "silent/replacement"
 const sitesKey string = "variants"
 const thetaKey string = "theta"
-const silentThetaKey string = "theta_silent"
+const exonicThetaKey string = "theta_exonic"
 const totalSamplesKey string = "samples"
 
 // NOTE: For now this only supports \n end of line characters
@@ -118,6 +119,8 @@ func setup(args []string) *Config {
     "refSeq.exonicAlleleFunction", `The name of the column that has nonSynonymous, synonymous, etc values (default: refSeq.exonicAlleleFunction)`)
   flag.StringVar(&config.silentSite, "silentName",
     "synonymous", `What do we call silent/synonymous sites`)
+  flag.StringVar(&config.exonicSite, "exonicName",
+    "exonic", `What do we call exonic sites`)
   flag.StringVar(&config.replacementSite, "replacementName",
     "nonSynonymous", `What do we call replacement/nonSynonymous sites`)
   flag.StringVar(&config.intergenicSite, "intergenicName",
@@ -298,6 +301,7 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
   trNames := make(map[string]string, 50)
   tvNames := make(map[string]string, 50)
   ratioNames := make(map[string]string, 50)
+  // thetaNames := make(map[string]string, 50)
 
   var sampleNames []string
   var siteTypes []string
@@ -307,12 +311,10 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
   // trTvArray will hold all of the ratios for total trTv
   trTvRatios := make([]float64, 0, 1000)
   thetaRatios := make([]float64, 0, 1000)
+  exonicThetaRatios := make([]float64, 0, 1000)
   silentRepRatios := make([]float64, 0, 1000)
   hetHomRatios := make([]float64, 0, 1000)
-
-  var tr jsonFloat
-  var tv jsonFloat
-  var trTv jsonFloat
+  exonicSite := config.exonicSite
 
   for sampleID := range trTvResults {
     if samplesMap[sampleID] == nil{
@@ -329,9 +331,13 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
   totalThetaDenom := jsonFloat(geomTheta(len(sampleNames) * 2))
 
   for sampleID, sampleVal := range trTvResults {
+    var tr jsonFloat
+    var tv jsonFloat
+    var trTv jsonFloat
     var silent jsonFloat
     var repl jsonFloat
     var silentRepl jsonFloat
+
     for siteType := range sampleVal {
       if trNames[siteType] == "" {
         if siteType == totalKey {
@@ -342,6 +348,7 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
           var trName bytes.Buffer
           var tvName bytes.Buffer
           var ratioName bytes.Buffer
+          // var thetaName bytes.Buffer
 
           trName.WriteString(siteType)
           trName.WriteString(" ")
@@ -361,6 +368,13 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
 
           ratioNames[siteType] = ratioName.String()
 
+          // TODO: we could calculate theta for all possible features
+          // thetaName.WriteString(tvKey)
+          // thetaName.WriteString("_")
+          // thetaName.WriteString(siteType)
+
+          // thetaNames[siteType] = thetaName.String()
+
           siteTypes = append(siteTypes, siteType)
         }
       }
@@ -373,19 +387,37 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
       samplesMap[sampleID][tvNames[siteType]] = tv
       samplesMap[sampleID][ratioNames[siteType]] = trTv
 
+      /******************* Calculate exonic theta ******************************/
+      // TODO: We could calculate theta for all sites
+      // TODO: For now we don't consider indels, or multiallelics
+      if siteType == exonicSite {
+        if sampleID == totalKey {
+          samplesMap[sampleID][exonicThetaKey] = (tr + tv) / totalThetaDenom
+        } else {
+          samplesMap[sampleID][exonicThetaKey] = (tr + tv) / 1.5
+          exonicThetaRatios = append(exonicThetaRatios, float64(samplesMap[sampleID][exonicThetaKey]))
+        }
+      }
+
+      /********* Calculate total theta, store total ts/tv ratios **************/
       // Calculate Theta. We only calculate theta for SNPs, since even
       // non-silent theta is questionable; odd segregating sites maybe moreso
-      if siteType == totalKey && sampleID != totalKey{
-        // 1.5 comes from (1/1 + 1/2) aka sum from 1 .. n-1{ 1/n }
-        // aka the number of allele 
-        samplesMap[sampleID][thetaKey] = (tr + tv) / 1.5
+      if siteType == totalKey {
+        if sampleID == totalKey {
+          samplesMap[sampleID][thetaKey] = (tr + tv)/ totalThetaDenom
+        } else {
+          // 1.5 comes from (1/1 + 1/2) aka sum from 1 .. n-1{ 1/n }
+          // aka the number of allele 
+          samplesMap[sampleID][thetaKey] = (tr + tv) / 1.5
 
-        trTvRatios = append(trTvRatios, float64(trTv))
-        thetaRatios = append(thetaRatios, float64(samplesMap[sampleID][thetaKey]))
+          trTvRatios = append(trTvRatios, float64(trTv))
+          thetaRatios = append(thetaRatios, float64(samplesMap[sampleID][thetaKey]))
+        }
       }
     }
 
-    // Silent stuff
+    /********************* Calculate silent/replacement ***********************/
+    // We don't calculate a silent theta (difficult to interpret)
     if sampleVal[config.silentSite] != nil {
       silent = jsonFloat(sampleVal[config.silentSite][0] + sampleVal[config.silentSite][1])
       repl = jsonFloat(sampleVal[config.replacementSite][0] + sampleVal[config.replacementSite][1])
@@ -397,17 +429,15 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
 
       if sampleID != totalKey {
         silentRepRatios = append(silentRepRatios, float64(silentRepl))
-        
-        // neutrality likely only at silent sites
-        samplesMap[sampleID][silentThetaKey] = silent / jsonFloat(1.5)
       }
     }
   }
 
-  samplesMap[totalKey][thetaKey] = jsonFloat(totalVariants) / totalThetaDenom
-  samplesMap[totalKey][silentThetaKey] = jsonFloat(samplesMap[totalKey][silentKey]) / jsonFloat(totalThetaDenom)
+  /******************* Store total number of variants *************************/
+  // This is the actual number of variants, including multiallelics, indels
   samplesMap[totalKey][sitesKey] = jsonFloat(totalVariants)
 
+  /******************* Caluclaute het/hom  and sample variant counts **********/
   for sampleID, val := range hetHomResults {
     if samplesMap[sampleID] == nil{
       samplesMap[sampleID] = make(map[string]jsonFloat, 100)
@@ -423,13 +453,14 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
 
     samplesMap[sampleID][hetHomRatioKey] = hetHom
 
-    // This is all sites, not just SNPs
+    // This is the actual number of variants, including multiallelics, indels
     if sampleID != totalKey {
       samplesMap[sampleID][sitesKey] = hets + homs
       hetHomRatios = append(hetHomRatios, float64(hetHom))
     }
   }
 
+  /******************* Calculate statistics ***********************************/
   sort.Strings(sampleNames)
   // We skipped the totalKey above, so that we may put it first
   sampleNames = append([]string{totalKey}, sampleNames...)
@@ -446,9 +477,9 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
   allStats[silentRepRatioKey] = stats(silentRepRatios)
   allStats[hetHomRatioKey] = stats(hetHomRatios)
   allStats[thetaKey] = stats(thetaRatios)
+  allStats[exonicThetaKey] = stats(exonicThetaRatios)
 
   //Get failing samples
-
   badSamples := getBadSamples(samplesMap, allStats)
 
   // log.Printf("%# v", pretty.Formatter(badSamples))
@@ -477,7 +508,7 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
   writer.WriteAll(headerStats)
 
   siteOrder := []string {
-    sitesKey, thetaKey, silentThetaKey, silentKey, replacementKey, silentRepRatioKey,
+    sitesKey, thetaKey, exonicThetaKey, silentKey, replacementKey, silentRepRatioKey,
     hetKey, homKey, hetHomRatioKey,
   }
 
@@ -491,10 +522,6 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
     line := []string{sampleName}
 
     for _, siteType := range siteOrder {
-      tr = samplesMap[sampleName][trNames[siteType]]
-      tv = samplesMap[sampleName][tvNames[siteType]]
-      trTv = samplesMap[sampleName][ratioNames[siteType]]
-
       line = append(line, roundVal(samplesMap[sampleName][siteType]))
     }
 
@@ -511,7 +538,7 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
   fmt.Fprint(outFh, config.fieldSeparator)
   writer.WriteAll(outLines)
 
-  /*************************** Write bad samples to file **************************************/
+  /*************************** Write bad samples to file **********************/
   if config.outQcTabPath != "" {
     outQcFh, err := os.OpenFile(config.outQcTabPath, os.O_CREATE|os.O_WRONLY, 0600)
 
@@ -524,7 +551,7 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
     }
   }
   
-  /*************************** Calc Statistics && Write JSON **********************************/
+  /*************************** Calc Statistics && Write JSON ******************/
   if config.outJsonPath != "" {
     // this one contains both counts and ratios, and is what we put into the return json
     // sampleId|total : "siteType|total|exonAlleleFunc transitions|transversions|ratio" = Z
@@ -533,7 +560,7 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
     allMap["stats"] = map[string]interface{} {
       "samples": numSamples,
       "variants": totalVariants,
-      "badSamplesCount": len(badSamples),
+      "samples_bad": len(badSamples),
     }
 
     jsonStatsMap := make(map[string]map[string]jsonFloat)
