@@ -461,6 +461,10 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
   }
 
   /******************* Calculate statistics ***********************************/
+  // If we don't calculate numSamples here, need to subtract 1, since we add back
+  // the total key
+  numSamples := float64(len(sampleNames))
+
   sort.Strings(sampleNames)
   // We skipped the totalKey above, so that we may put it first
   sampleNames = append([]string{totalKey}, sampleNames...)
@@ -468,8 +472,6 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
   sort.Strings(siteTypes)
 
   siteTypes = append([]string{totalKey}, siteTypes...)
-
-  numSamples := float64(len(sampleNames))
 
   // Calculate statistics
   allStats := make(map[string]map[string]float64)
