@@ -420,7 +420,11 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
     // We don't calculate a silent theta (difficult to interpret)
     if sampleVal[config.silentSite] != nil {
       silent = jsonFloat(sampleVal[config.silentSite][0] + sampleVal[config.silentSite][1])
-      repl = jsonFloat(sampleVal[config.replacementSite][0] + sampleVal[config.replacementSite][1])
+
+      if sampleVal[config.replacementSite] != nil {
+        repl = jsonFloat(sampleVal[config.replacementSite][0] + sampleVal[config.replacementSite][1])
+      }
+
       silentRepl = silent / repl
 
       samplesMap[sampleID][silentKey] = silent
