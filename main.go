@@ -331,13 +331,6 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
   totalThetaDenom := jsonFloat(geomTheta(len(sampleNames) * 2))
 
   for sampleID, sampleVal := range trTvResults {
-    var tr jsonFloat
-    var tv jsonFloat
-    var trTv jsonFloat
-    var silent jsonFloat
-    var repl jsonFloat
-    var silentRepl jsonFloat
-
     for siteType := range sampleVal {
       if trNames[siteType] == "" {
         if siteType == totalKey {
@@ -379,9 +372,9 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
         }
       }
 
-      tr = jsonFloat(sampleVal[siteType][0])
-      tv = jsonFloat(sampleVal[siteType][1])
-      trTv = tr / tv
+      tr := jsonFloat(sampleVal[siteType][0])
+      tv := jsonFloat(sampleVal[siteType][1])
+      trTv := tr / tv
 
       samplesMap[sampleID][trNames[siteType]] = tr
       samplesMap[sampleID][tvNames[siteType]] = tv
@@ -419,6 +412,10 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
     /********************* Calculate silent/replacement ***********************/
     // We don't calculate a silent theta (difficult to interpret)
     if sampleVal[config.silentSite] != nil {
+      var silent jsonFloat
+      var repl jsonFloat
+      var silentRepl jsonFloat
+
       silent = jsonFloat(sampleVal[config.silentSite][0] + sampleVal[config.silentSite][1])
 
       if sampleVal[config.replacementSite] != nil {
