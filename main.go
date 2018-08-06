@@ -209,7 +209,7 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
     return
   }
 
-  headerFields := strings.Split(header[:len(header) - numChars], config.fieldSeparator)
+  headerFields := strings.Split(header, config.fieldSeparator)
 
   indices := findFeatures(headerFields, config)
 
