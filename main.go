@@ -16,7 +16,7 @@ import (
   "sort"
   "strconv"
   "strings"
-  "github.com/akotlar/bystro-utils/parse"
+  "github.com/bystrogenomics/bystro-utils/parse"
 
   // "github.com/kr/pretty"
   "sync"
