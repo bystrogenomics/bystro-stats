@@ -492,7 +492,7 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
 
   if config.outTabPath != "" {
     var err error
-    outFh, err = os.OpenFile(config.outTabPath, os.O_CREATE|os.O_WRONLY, 0600)
+    outFh, err = os.OpenFile(config.outTabPath, os.O_CREATE|os.O_WRONLY, 0644)
 
     if err != nil {
       log.Fatal(err)
@@ -543,7 +543,7 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
 
   /*************************** Write bad samples to file **********************/
   if config.outQcTabPath != "" {
-    outQcFh, err := os.OpenFile(config.outQcTabPath, os.O_CREATE|os.O_WRONLY, 0600)
+    outQcFh, err := os.OpenFile(config.outQcTabPath, os.O_CREATE|os.O_WRONLY, 0644)
 
     if err != nil {
       log.Fatal(err)
@@ -590,7 +590,7 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
       log.Fatal(err)
     }
 
-    err = ioutil.WriteFile(config.outJsonPath, json, os.FileMode(0600))
+    err = ioutil.WriteFile(config.outJsonPath, json, os.FileMode(0644))
 
     if err != nil {
       log.Fatal(err)
