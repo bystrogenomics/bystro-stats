@@ -2,25 +2,26 @@
 package main
 
 import (
-  "bufio"
-  "bytes"
-  "encoding/csv"
-  "encoding/json"
-  "flag"
-  "fmt"
-  "io"
-  "io/ioutil"
-  "log"
-  "math"
-  "os"
-  "sort"
-  "strconv"
-  "strings"
-  "github.com/bystrogenomics/bystro-utils/parse"
+	"bufio"
+	"bytes"
+	"encoding/csv"
+	"encoding/json"
+	"flag"
+	"fmt"
+	"io"
+	"io/ioutil"
+	"log"
+	"math"
+	"os"
+	"sort"
+	"strconv"
+	"strings"
 
-  // "github.com/kr/pretty"
-  "sync"
-  "runtime/pprof"
+	"github.com/bystrogenomics/bystro-utils/parse"
+
+	// "github.com/kr/pretty"
+	"runtime/pprof"
+	"sync"
 )
 
 type jsonFloat float64
@@ -54,6 +55,7 @@ type Config struct {
   typeColumn string
   homozygotesColumn string
   heterozygotesColumn string
+  missingGenosColumn string
   siteTypeColumn string
   dbSNPnameColumn string
   exonicAlleleFunctionColumn string
@@ -75,6 +77,7 @@ type Indices struct {
   alt int
   het int
   hom int
+  missingGenos int
   siteType int
   dbSNPname int
   exonicAlleleFunction int
@@ -87,6 +90,8 @@ const trTvKey string = "transitions/transversions"
 const dbSnpKey string = "_in_dbSNP"
 const hetKey string = "heterozygotes"
 const homKey string = "homozygotes"
+const missingKey string = "missingGenotypes"
+const missingnessKey string = "missingness"
 const hetHomRatioKey string = "heterozygotes/homozygotes"
 const silentKey string = "silent"
 const replacementKey string = "replacement"
@@ -113,6 +118,8 @@ func setup(args []string) *Config {
     "The homozygous sample column name (default: homozygotes)")
   flag.StringVar(&config.heterozygotesColumn, "heterozygotesColumn", "heterozygotes",
     "The homozygous sample column name (default: heterozygotes)")
+  flag.StringVar(&config.missingGenosColumn, "missingGenosColumn", "missingGenos",
+    "The missing genotypes column name (default: missingGenos)")
   flag.StringVar(&config.siteTypeColumn, "siteTypeColumn", "refSeq.siteType", "The site type column name (default: refSeq.siteType)")
   flag.StringVar(&config.dbSNPnameColumn, "dbSnpNameColumn", "dbSNP.name", "Optional. The snp name column name (default: dbSNP.name)")
   flag.StringVar(&config.exonicAlleleFunctionColumn, "exonicAlleleFunctionColumn",
@@ -278,11 +285,12 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
       if hhMap != nil {
         for k, v := range hhMap {
           if hetHomResults[k] == nil {
-            hetHomResults[k] = []int{0, 0}
+            hetHomResults[k] = []int{0, 0, 0}
           }
 
           hetHomResults[k][0] += v[0]
           hetHomResults[k][1] += v[1]
+          hetHomResults[k][2] += v[2]
         }
       }
     }
@@ -314,6 +322,7 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
   exonicThetaRatios := make([]float64, 0, 1000)
   silentRepRatios := make([]float64, 0, 1000)
   hetHomRatios := make([]float64, 0, 1000)
+  missingnessRatios := make([]float64, 0, 1000)
   exonicSite := config.exonicSite
 
   for sampleID := range trTvResults {
@@ -447,17 +456,27 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
 
     hets := jsonFloat(val[0])
     homs := jsonFloat(val[1])
+    missings := jsonFloat(val[2])
     hetHom := hets / homs
+    missingness := jsonFloat(0)
+
+    totalGenotypeStates := hets + homs + missings
+    if totalGenotypeStates > 0 {
+      missingness = missings / totalGenotypeStates
+    }
 
     samplesMap[sampleID][hetKey] = hets
     samplesMap[sampleID][homKey] = homs
+    samplesMap[sampleID][missingKey] = missings
 
     samplesMap[sampleID][hetHomRatioKey] = hetHom
+    samplesMap[sampleID][missingnessKey] = missingness
 
     // This is the actual number of variants, including multiallelics, indels
     if sampleID != totalKey {
       samplesMap[sampleID][sitesKey] = hets + homs
       hetHomRatios = append(hetHomRatios, float64(hetHom))
+      missingnessRatios = append(missingnessRatios, float64(missingness))
     }
   }
 
@@ -479,6 +498,7 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
   allStats[trTvKey] = stats(trTvRatios)
   allStats[silentRepRatioKey] = stats(silentRepRatios)
   allStats[hetHomRatioKey] = stats(hetHomRatios)
+  allStats[missingnessKey] = stats(missingnessRatios)
   allStats[thetaKey] = stats(thetaRatios)
   allStats[exonicThetaKey] = stats(exonicThetaRatios)
 
@@ -512,7 +532,7 @@ func processAnnotation(config *Config, reader *bufio.Reader) {
 
   siteOrder := []string {
     sitesKey, thetaKey, exonicThetaKey, silentKey, replacementKey, silentRepRatioKey,
-    hetKey, homKey, hetHomRatioKey,
+    hetKey, homKey, missingKey, hetHomRatioKey, missingnessKey,
   }
 
   for _, siteType := range siteTypes {
@@ -634,6 +654,7 @@ func findFeatures (record []string, config *Config) (Indices) {
   altIdx := -9
   hetIdx := -9
   homIdx := -9
+  missingGenosIdx := -9
   siteTypeIdx := -9
   dbSNPnameIdx := -9
   exonicAlleleFunctionIdx := -9
@@ -662,6 +683,10 @@ func findFeatures (record []string, config *Config) (Indices) {
     homIdx = findIndex(record, config.homozygotesColumn)
   }
 
+  if config.missingGenosColumn != "" {
+    missingGenosIdx = findIndex(record, config.missingGenosColumn)
+  }
+
   if config.siteTypeColumn != "" {
     siteTypeIdx = findIndex(record, config.siteTypeColumn)
   }
@@ -676,7 +701,7 @@ func findFeatures (record []string, config *Config) (Indices) {
 
   indices := Indices{
     trTv: trTvIdx, typeIdx: typeIdx, ref: refIdx, alt: altIdx,
-    het: hetIdx, hom: homIdx, siteType: siteTypeIdx, dbSNPname: dbSNPnameIdx,
+    het: hetIdx, hom: homIdx, missingGenos: missingGenosIdx, siteType: siteTypeIdx, dbSNPname: dbSNPnameIdx,
     exonicAlleleFunction: exonicAlleleFunctionIdx,
   }
 
@@ -690,7 +715,7 @@ hetHomChan chan map[string][]int, complete chan int) {
   trTvMap := make(map[string]map[string][]int, 1000)
 
   hetHomMap := make(map[string][]int, 1000)
-  hetHomMap[totalKey] = []int{0, 0}
+  hetHomMap[totalKey] = []int{0, 0, 0}
 
   hets := make([]string, 0, 1000)
   homs := make([]string, 0, 100)
@@ -718,6 +743,7 @@ hetHomChan chan map[string][]int, complete chan int) {
   trTvIdx := indices.trTv
   hetIdx := indices.het
   homIdx := indices.hom
+  missingGenosIdx := indices.missingGenos
   funcIdx := indices.exonicAlleleFunction
   dbSNPnameIdx := indices.dbSNPname
   siteTypeIdx := indices.siteType
@@ -737,6 +763,9 @@ hetHomChan chan map[string][]int, complete chan int) {
 
   var hasHet bool
   var hasHom bool
+  var hasMissing bool
+  missing := make([]string, 0, 100)
+  hasMissingColumn := missingGenosIdx > -9
   for line := range queue {
     record := strings.Split(line, config.fieldSeparator)
 
@@ -749,13 +778,14 @@ hetHomChan chan map[string][]int, complete chan int) {
 
     hasHet = record[hetIdx] != emptyField
     hasHom = record[homIdx] != emptyField
+    hasMissing = hasMissingColumn && record[missingGenosIdx] != emptyField
 
     if hasHet {
       hets = strings.Split(record[hetIdx], pDelim)
 
       for _, sample := range hets {
         if hetHomMap[sample] == nil {
-          hetHomMap[sample] = []int{0, 0}
+          hetHomMap[sample] = []int{0, 0, 0}
         }
 
         hetHomMap[sample][0]++
@@ -768,11 +798,24 @@ hetHomChan chan map[string][]int, complete chan int) {
 
       for _, sample := range homs {
         if hetHomMap[sample] == nil {
-          hetHomMap[sample] = []int{0, 0}
+          hetHomMap[sample] = []int{0, 0, 0}
         }
 
         hetHomMap[sample][1]++
         hetHomMap[totalKey][1]++
+      }
+    }
+
+    if hasMissing {
+      missing = strings.Split(record[missingGenosIdx], pDelim)
+
+      for _, sample := range missing {
+        if hetHomMap[sample] == nil {
+          hetHomMap[sample] = []int{0, 0, 0}
+        }
+
+        hetHomMap[sample][2]++
+        hetHomMap[totalKey][2]++
       }
     }
 
